@@ -1,0 +1,41 @@
+---
+title: "process-ROS-data"
+output: html_document
+date: "2024-01-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## ROS data processing
+
+Using input cell counts from processing FCM data, process ROS data from 914 & 874 nitrogen-temperature colimitation experiments.
+
+```{r read_ros}
+ros_data=read.csv("../data/914/ros_914.csv")
+conc_data=read.csv("../data/914/914_all_conc.csv")
+
+ros_data_merged = ros_data %>% dplyr::mutate(Date = as.Date(Date, format="%m/%d/%Y"),
+                                             n_conc=as.character(n_conc)) %>%
+  dplyr::left_join(conc_data %>% dplyr::mutate(Date = as.Date(Date,format="%Y-%m-%d"),
+                                               n_conc=as.character(n_conc)),
+                   by=c("Date","rep","n_conc","temp_c"))
+```
+
+## Normalize ROS by cell concentration
+
+```{r}
+ros_data_merged = ros_data_merged %>%
+    dplyr::mutate(ROS_norm=Fluorescence/ConcCellmL/20/1000)
+```
+
+## Plot ROS data
+
+```{r}
+ggplot(ros_data_merged) + 
+  geom_point(aes(x = Date, y = ROS_norm, col=n_conc)) + 
+  geom_line(aes(x = Date, y = ROS_norm, col=n_conc, group=paste0(n_conc,rep))) + 
+  facet_wrap(~temp_c,scales="free_y",nrow=2) + ylab("ROS fluorescence per cell") + 
+  theme_bw(base_size=12)
+```

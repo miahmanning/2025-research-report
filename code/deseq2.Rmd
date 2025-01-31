@@ -1,0 +1,977 @@
+---
+title: "N-T DESeq2"
+output: html_notebook
+---
+
+# Libraries
+
+```{r, message=FALSE}
+packages <- c("DESeq2","ggplot2","ggrepel","pheatmap","tidyverse","janitor", "tximport", "ggpubr", "PCAtools", "scales")
+
+install_and_load <- function(pkg) {
+  if (!require(pkg, character.only = TRUE)) {
+    install.packages(pkg, dependencies = TRUE)
+    library(pkg, character.only = TRUE)
+  } else {
+    library(pkg, character.only = TRUE)
+  }
+}
+
+lapply(packages, install_and_load)
+```
+
+# Strain 914
+
+## Load metadata
+
+```{r}
+setwd("C:/Users/miahm/R/Nitrogen Experiment/DE")
+#Metadata file
+meta_914 <- read.csv("meta_914.csv", header=TRUE, row.names=1)
+meta_914$n_conc <- as.factor(meta_914$n_conc)
+meta_914$temp_c <- as.factor(meta_914$temp_c)
+```
+
+## Load transcripts w/ orthogroup names
+
+```{r}
+quant_914 <- file.path("quant", rownames(meta_914), "quant.sf")
+names(quant_914) <- paste0(sprintf("MM%03d", 1:17)) #reassigns the sample name
+
+orthogroups <-read.csv("final_orthogroups.csv")
+orthogroups_914 <- orthogroups %>% filter(strain == 914)
+
+#Make transcript to gene file
+txi_914 <- tximport(quant_914, type = "salmon" , tx2gene = orthogroups_914)
+```
+
+## Determining Prefiltering Cutoff
+
+```{r}
+counts_914 <- as.data.frame(txi_914$counts)
+counts_914$sum <- rowSums(counts_914)
+
+counts_914$bin <- cut(
+  counts_914$sum,
+  breaks = c(seq(0, 100, by = 10), Inf),
+  labels = c(seq(0,90, by = 10), ">100"),
+  right = FALSE
+)
+
+ggplot(counts_914, aes(x = bin)) +
+  geom_histogram(stat = "count", fill = "steelblue") +
+  theme_minimal() +
+  labs(x = "Counts", y = "# of OGs") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## DESeq
+
+```{r}
+dds_914 <- DESeqDataSetFromTximport(txi_914, colData = meta_914, design = ~n_conc + temp_c + temp_c:n_conc)
+
+#Prefiltering for low counts across samples
+keep_914 <- rowSums(counts(dds_914)) >= 20
+dds_914 <- dds_914[keep_914,]
+
+dds_914$n_conc <- relevel(dds_914$n_conc, ref = "100") #setting 100 as the reference level
+dds_914$temp_c <- relevel(dds_914$temp_c, ref = "18")
+
+dds_914 <- DESeq(dds_914)
+
+res_914 <- results(dds_914, alpha = 0.05)
+summary(res_914)
+
+#Shrinkage adjustment
+#resLFC_914 <- lfcShrink(dds_914, res=res_914, coef="n_conc_10_vs_100", type="apeglm")
+head(results(dds_914, contrast=c("n_conc", "10", "100")))
+head(results(dds_914, contrast=c("temp_c", "18", "22")))
+head(results(dds_914, contrast=c("temp_c", "18", "28")))
+#Variance Stabilization
+vsd_914 <- vst(dds_914, blind=FALSE)
+```
+
+## PCA
+
+```{R}
+pca_914 <- pca(assay(vsd_914), metadata = meta_914)
+scree_914 <- screeplot(pca_914, axisLabSize = 18, titleLabSize = 22)
+plotloadings(pca_914,
+             rangeRetain = 0.01,
+             labSize = 4.0,
+             title = 'Loadings plot',
+             subtitle = 'PC1, PC2, PC3, PC4, PC5',
+             caption = 'Top 1% variables',
+             shape = 24,
+             col = c('yellow', 'white', 'blue'),
+             drawConnectors = TRUE)
+eigencor_914 <- eigencorplot(pca_914, metavars = c('n_conc','temp_c'))
+
+biplot_914 <-biplot(pca_914,
+                    lab=NULL, title = NULL, colby = 'temp_c', 
+                    colkey = c('18'='#008CF4', '22'='#D6A400', "28" ="#BB0000"),
+                    labSize = 12,
+                    pointSize = 4,
+                    gridlines.major = FALSE, gridlines.minor = FALSE,
+                    legendPosition = 'none',
+                    shape = 'n_conc', shapekey = c('10'=1, '100'=16),
+                    xlab = paste0("PC1", " [", round(pca_914$variance[1], digits = 2), "%]"),
+                    ylab = paste0("PC2", " [", round(pca_914$variance[2], digits = 2), "%]"),
+                    drawConnectors = FALSE,
+                    borderWidth = 0.5)
+
+scree_914
+eigencor_914
+biplot_914
+```
+
+```{R}
+eggnog_annotations <- read.delim("eggnog_annotations_by_orthogroup.tsv", header = TRUE, sep = "\t", row.names = NULL)
+colnames(eggnog_annotations) <- colnames(eggnog_annotations)[-1]
+```
+
+# Strain 874
+## Load metadata
+```{R}
+#Metadata file
+meta_874 <- read.csv("meta_874.csv", header=TRUE, row.names=1)
+meta_874$n_conc <- as.factor(meta_874$n_conc)
+meta_874$temp_c <- as.factor(meta_874$temp_c)
+```
+## Load transcripts
+```{R}
+quant_874 <- file.path("quant", rownames(meta_874), "quant.sf")
+names(quant_874) <- paste0(sprintf("MM%03d", 18:35)) #reassigns the sample name
+
+orthogroups_874 <- orthogroups %>% filter(strain == 874)
+
+#Make transcript to gene file
+txi_874 <- tximport(quant_874, type = "salmon" , tx2gene = orthogroups_874)
+```
+## DE
+```{R}
+dds_874 <- DESeqDataSetFromTximport(txi_874, colData = meta_874, design = ~n_conc + temp_c + temp_c:n_conc)
+
+#Prefiltering for low counts across samples
+keep_874 <- rowSums(counts(dds_874)) >= 20
+dds_874 <- dds_874[keep_874,]
+
+dds_874$n_conc <- relevel(dds_874$n_conc, ref = "100") #setting 100 as the reference level
+dds_874$temp_c <- relevel(dds_874$temp_c, ref = "18")
+
+dds_874 <- DESeq(dds_874)
+
+res_874 <- results(dds_874, alpha = 0.05)
+summary(res_874)
+
+#Shrinkage adjustment
+#resLFC_914 <- lfcShrink(dds_914, res=res_914, coef="n_conc_10_vs_100", type="apeglm")
+head(results(dds_874, contrast=c("n_conc", "10", "100")))
+head(results(dds_874, contrast=c("temp_c", "18", "22")))
+head(results(dds_874, contrast=c("temp_c", "18", "25")))
+#Variance Stabilization
+vsd_874 <- vst(dds_874, blind=FALSE)
+```
+
+```{R}
+pca_874 <- pca(assay(vsd_874), metadata = meta_874)
+scree_874 <- screeplot(pca_874, axisLabSize = 18, titleLabSize = 22)
+plotloadings(pca_874,
+             rangeRetain = 0.01,
+             labSize = 4.0,
+             title = 'Loadings plot',
+             subtitle = 'PC1, PC2, PC3, PC4, PC5',
+             caption = 'Top 1% variables',
+             shape = 24,
+             col = c('yellow', 'white', 'blue'),
+             drawConnectors = TRUE)
+eigencor_874 <- eigencorplot(pca_874, metavars = c('n_conc','temp_c'))
+
+biplot_874 <- biplot(pca_874,lab=NULL, title = NULL, colby = 'temp_c', 
+                    colkey = c('18'='#008CF4', '22'='#D6A400', "25" ="#BB0000"),
+                    labSize = 12,
+                    pointSize = 4,
+                    gridlines.major = FALSE, gridlines.minor = FALSE,
+                    legendPosition = 'none',
+                    shape = 'n_conc', shapekey = c('10'=18, '100'=5),
+                    xlab = paste0("PC1", " [", round(pca_874$variance[1], digits = 2), "%]"),
+                    ylab = paste0("PC2", " [", round(pca_874$variance[2], digits = 2), "%]"),
+                    drawConnectors = FALSE,
+                    borderWidth = 0.5) 
+
+scree_874
+eigencor_874
+biplot_874
+
+biplot_all<-ggarrange(biplot_874, biplot_914, common.legend = TRUE,legend="right", nrow = 2)
+biplot_all
+```
+
+# Comparing Regulation
+
+## Correlation
+Sig in either strain
+```{R}
+df_874 <- as.data.frame(res_874)
+df_914 <- as.data.frame(res_914)
+#res_874_sig<- df_874 %>% filter(padj <0.05 & abs(log2FoldChange) >2)
+#res_914_sig<- df_914 %>% filter(padj <0.05 & abs(log2FoldChange) >2)
+
+common_genes <- intersect(rownames(df_874), rownames(df_914))
+res_874_sig_shared <- df_874[common_genes, ]
+res_914_sig_shared <- df_914[common_genes, ]
+
+logFC_limma <- cbind(res_874_sig_shared$log2FoldChange,res_874_sig_shared$padj, res_914_sig_shared$log2FoldChange, res_914_sig_shared$padj)
+colnames(logFC_limma) <- c("874_log2FC","874_padj", "914_log2FC", "914_padj")
+logFC_limma <- as.data.frame(logFC_limma)
+
+res_sig<- logFC_limma %>% filter(`874_padj` <0.05 & abs(`874_log2FC`) >2 | `914_padj` <0.05 & abs(`914_log2FC`) >2)
+
+
+cor_test <- cor.test(res_sig$`874_log2FC`, res_sig$`914_log2FC`)
+cor_test
+```
+Sig in both strain
+```{R}
+df_874 <- as.data.frame(res_874)
+df_914 <- as.data.frame(res_914)
+res_874_sig<- df_874 %>% filter(padj <0.05 & abs(log2FoldChange) >2)
+res_914_sig<- df_914 %>% filter(padj <0.05 & abs(log2FoldChange) >2)
+
+common_genes <- intersect(rownames(res_874_sig), rownames(res_914_sig))
+res_874_sig_shared <- res_874_sig[common_genes, ]
+res_914_sig_shared <- res_914_sig[common_genes, ]
+
+logFC_limma <- cbind(res_874_sig_shared$log2FoldChange,res_874_sig_shared$padj, res_914_sig_shared$log2FoldChange, res_914_sig_shared$padj)
+colnames(logFC_limma) <- c("874_log2FC","874_padj", "914_log2FC", "914_padj")
+logFC_limma <- as.data.frame(logFC_limma)
+
+cor_test <- cor.test(logFC_limma$`874_log2FC`, logFC_limma$`914_log2FC`)
+cor_test
+```
+
+
+```{R}
+nconc_874 <- results(dds_874, contrast=c("n_conc", "10", "100"), alpha = 0.05)
+nconc_914 <- results(dds_914, contrast=c("n_conc", "10", "100"), alpha = 0.05)
+
+modTemp_874 <- results(dds_874, contrast=c("temp_c", "18", "22"), alpha = 0.05)
+modTemp_914 <- results(dds_914, contrast=c("temp_c", "18", "22"), alpha = 0.05)
+
+highTemp_874 <- results(dds_874, contrast=c("temp_c", "18", "25"), alpha = 0.05)
+highTemp_914 <- results(dds_914, contrast=c("temp_c", "18", "28"), alpha = 0.05)
+
+process_contrast <- function(results_874, results_914, contrast_name) {
+  df_874 <- as.data.frame(results_874)
+  df_914 <- as.data.frame(results_914)
+  
+  df_874 <- df_874[order(-abs(df_874$log2FoldChange)),]
+  df_914 <- df_914[order(-abs(df_914$log2FoldChange)),]
+  
+  shared_OGs <- intersect(rownames(df_874), rownames(df_914))
+  shared_874 <- results_874[shared_OGs, ]
+  shared_914 <- results_914[shared_OGs, ]
+  
+  # Assign regulation status
+  significance_threshold <- 0.05
+  regulation_874 <- ifelse(shared_874$padj < significance_threshold & shared_874$log2FoldChange >= 2, "Up",
+                   ifelse(shared_874$padj < significance_threshold & shared_874$log2FoldChange <= -2, "Down", 
+                          "Not Significant"))
+  
+  regulation_914 <- ifelse(shared_914$padj < significance_threshold & shared_914$log2FoldChange >= 2, "Up",
+                   ifelse(shared_914$padj < significance_threshold & shared_914$log2FoldChange <= -2, "Down", 
+                          "Not Significant"))
+  
+  regulation_comparison <- data.frame(
+    OG = shared_OGs,
+    regulation_874 = regulation_874,
+    regulation_914 = regulation_914
+  )
+  
+  regulation_comparison$category <- ifelse(
+    regulation_comparison$regulation_874 == "Up" & regulation_comparison$regulation_914 == "Up", "Both Up",
+    ifelse(
+      regulation_comparison$regulation_874 == "Down" & regulation_comparison$regulation_914 == "Down", "Both Down",
+      ifelse(
+        regulation_comparison$regulation_874 %in% c("Up", "Down") & 
+        regulation_comparison$regulation_914 %in% c("Up", "Down") & 
+        regulation_comparison$regulation_874 != regulation_comparison$regulation_914, "Opposite Regulation",
+        ifelse(
+          regulation_comparison$regulation_874 == "Up" & regulation_comparison$regulation_914 == "Not Significant", "Up in 874 Only",
+          ifelse(
+            regulation_comparison$regulation_874 == "Down" & regulation_comparison$regulation_914 == "Not Significant", "Down in 874 Only",
+            ifelse(
+              regulation_comparison$regulation_914 == "Up" & regulation_comparison$regulation_874 == "Not Significant", "Up in 914 Only",
+              ifelse(
+                regulation_comparison$regulation_914 == "Down" & regulation_comparison$regulation_874 == "Not Significant", "Down in 914 Only",
+                "Not Significant"
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+  regulation_comparison <- regulation_comparison[regulation_comparison$category != "Not Significant", ]
+
+  category_counts <- as.data.frame(table(regulation_comparison$category))
+  colnames(category_counts) <- c("Category", "Count")
+  category_counts$Contrast <- contrast_name
+  
+  return(category_counts)
+}
+
+# Process each contrast
+nconc_counts <- process_contrast(nconc_874, nconc_914, "N limited")
+modTemp_counts <- process_contrast(modTemp_874, modTemp_914, "Moderate Heat Stress")
+highTemp_counts <- process_contrast(highTemp_874, highTemp_914, "High Heat Stress")
+
+
+all_counts <- rbind(nconc_counts, modTemp_counts, highTemp_counts)
+
+category_order <- c(
+  "Both Down", 
+  "Down in 874 Only", 
+  "Down in 914 Only",
+  "Opposite Regulation", 
+  "Up in 874 Only", 
+  "Up in 914 Only",
+  "Both Up"
+)
+all_counts$Category <- factor(all_counts$Category, levels = category_order)
+category_colors <- c(
+  "Both Up" = "#D82354", 
+  "Both Down" = "#005694", 
+  "Opposite Regulation" = "#FFFFFF",
+  "Up in 874 Only" = "#FBD5E2",
+  "Down in 874 Only" = "#A1CFFF",
+  "Up in 914 Only" = "#FAAAAA", 
+  "Down in 914 Only" = "#AADFFF")
+
+regulation_plot <- ggplot(all_counts, aes(x = Contrast, y = Count, fill = Category)) +
+  geom_bar(stat = "identity", width = 0.7, color = "black") +
+  scale_fill_manual(values = category_colors) +
+  labs(x = NULL, y = "# of Orthogroups",
+    fill = "Regulation") +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        legend.position="bottom",
+        axis.text = element_text(size=12),
+        legend.text = element_text(size =10),
+        axis.title.y = element_text(size =12))
+
+regulation_plot
+
+#ggsave(filename = "regulation_plot.png", regulation_plot, width = 7, height = 5, dpi = 300)
+```
+## Chi-Squared distribution test
+```{R}
+nconc_counts <- nconc_counts %>%
+  rename_with(~ nconc_counts$Contrast[1], .cols = Count) %>%
+  select(-Contrast)
+modTemp_counts <- modTemp_counts %>%
+  rename_with(~ modTemp_counts$Contrast[1], .cols = Count) %>%
+  select(-Contrast)
+highTemp_counts <- highTemp_counts %>%
+  rename_with(~ highTemp_counts$Contrast[1], .cols = Count) %>%
+  select(-Contrast)
+#chi_contingency <- merge(nconc_counts, modTemp_counts, by = "Category", all = TRUE)
+#chi_contingency <- merge(chi_contingency, highTemp_counts, by = "Category", all = TRUE)
+rownames(nconc_counts) <- nconc_counts$Category
+nconc_counts$Category <- NULL
+chi_square_test <- chisq.test(nconc_counts)
+print(chi_square_test)
+expected_counts <- chi_square_test$expected
+observed_counts <- chi_square_test$observed
+contributions <- (observed_counts - expected_counts)^2 / expected_counts
+total_chi_square <- chi_square_test$statistic
+percentage_contributions <- 100 * contributions / total_chi_square
+print("Percentage Contributions:")
+print(round(percentage_contributions, 2))
+
+rownames(modTemp_counts) <- modTemp_counts$Category
+modTemp_counts$Category <- NULL
+chi_square_test <- chisq.test(modTemp_counts)
+print(chi_square_test)
+expected_counts <- chi_square_test$expected
+observed_counts <- chi_square_test$observed
+contributions <- (observed_counts - expected_counts)^2 / expected_counts
+total_chi_square <- chi_square_test$statistic
+percentage_contributions <- 100 * contributions / total_chi_square
+print("Percentage Contributions:")
+print(round(percentage_contributions, 2))
+
+rownames(highTemp_counts) <- highTemp_counts$Category
+highTemp_counts$Category <- NULL
+chi_square_test <- chisq.test(highTemp_counts)
+print(chi_square_test)
+expected_counts <- chi_square_test$expected
+observed_counts <- chi_square_test$observed
+contributions <- (observed_counts - expected_counts)^2 / expected_counts
+total_chi_square <- chi_square_test$statistic
+percentage_contributions <- 100 * contributions / total_chi_square
+print("Percentage Contributions:")
+print(round(percentage_contributions, 2))
+
+```
+```{r}
+set.seed(123)
+n <- 
+```
+### Specific Pathways
+874
+```{R}
+eggnog_annotations <- read.delim("eggnog_annotations_by_orthogroup.tsv", header = TRUE, sep = "\t", row.names = NULL)
+colnames(eggnog_annotations) <- colnames(eggnog_annotations)[-1]
+
+nconc_874 <- results(dds_874, contrast=c("n_conc", "10", "100"), alpha = 0.05)
+
+nconc_874_df <- as.data.frame(nconc_874)
+nconc_874_df <- merge(nconc_874_df, eggnog_annotations, by.x = "row.names", by.y = "orthogroup", all.x = TRUE)
+rownames(nconc_874_df) <- nconc_874_df$Row.names
+nconc_874_df <- nconc_874_df[1:(length(nconc_874_df)-1)]
+nconc_874_ko <- nconc_874_df %>%
+  separate_rows(KEGG_ko, sep = ",") %>%
+  filter(!is.na(KEGG_ko) & KEGG_ko != "") %>%
+  mutate(KEGG_ko = str_remove(KEGG_ko, "^ko:"))
+
+ko_list <- c("K01439", "K01428", "K01429", "K01430", "K01577", "K03320", "K02575", "K15577", "K15578", "K11959", "K11960")
+KO_function_map <- c(
+  "K01439" = "Formamidase",
+  "K01428" = "Urease alpha subunit (ureC)",
+  "K01429" = "Urease beta subunit (ureB)",
+  "K01430" = "Urease gamma subunit (ureA)",
+  "K01577" = "Amidase",
+  "K03320" = "Ammonium transporter (amt)",
+  "K02575" = "Nitrate transporter 1/2 (NRT1/2 family)",
+  "K15577" = "High-affinity nitrate transporter (NRT2)",
+  "K15578" = "Nitrite transporter (NAR1 family)",
+  "K11959" = "Urea transporter (DUR3 family)",
+  "K11960" = "Urea-proton symporter (UT family)"
+)
+nconc_874_ko_filtered <- nconc_874_ko %>%
+  filter(KEGG_ko %in% ko_list) #%>%
+  #filter(padj <= 0.05 & abs(log2FoldChange) > 2)
+nconc_874_ko_filtered <- nconc_874_ko_filtered %>%
+  mutate(KEGG_ko_function = sapply(KEGG_ko, function(x) KO_function_map[x]))
+
+nconc_874_ko_filtered <- nconc_874_ko_filtered %>%
+  mutate(Combined = paste(Row.names, KEGG_ko_function, sep = " - "))
+
+logFC_n_conc_874 <- as.matrix(nconc_874_ko_filtered$log2FoldChange)
+
+rownames(logFC_n_conc_874) <- nconc_874_ko_filtered$Combined
+breaks <- max(abs(logFC_n_conc_874))
+pheatmap(logFC_n_conc_874,
+         breaks= seq(-breaks, breaks, length.out = 100),
+         cluster_rows= TRUE, 
+         cluster_cols=FALSE, 
+         show_rownames=TRUE, 
+         show_colnames=FALSE)
+```
+914
+```{R}
+nconc_914 <- results(dds_914, contrast=c("n_conc", "10", "100"), alpha = 0.05)
+
+nconc_914_df <- as.data.frame(nconc_914)
+nconc_914_df <- merge(nconc_914_df, eggnog_annotations, by.x = "row.names", by.y = "orthogroup", all.x = TRUE)
+rownames(nconc_914_df) <- nconc_914_df$Row.names
+nconc_914_df <- nconc_914_df[1:(length(nconc_914_df)-1)]
+nconc_914_ko <- nconc_914_df %>%
+  separate_rows(KEGG_ko, sep = ",") %>%
+  filter(!is.na(KEGG_ko) & KEGG_ko != "") %>%
+  mutate(KEGG_ko = str_remove(KEGG_ko, "^ko:"))
+
+ko_list <- c("K01439", "K01428", "K01429", "K01430", "K01577", "K03320", "K02575", "K15577", "K15578", "K11959", "K11960")
+KO_function_map <- c(
+  "K01439" = "Formamidase",
+  "K01428" = "Urease alpha subunit (ureC)",
+  "K01429" = "Urease beta subunit (ureB)",
+  "K01430" = "Urease gamma subunit (ureA)",
+  "K01577" = "Amidase",
+  "K03320" = "Ammonium transporter (amt)",
+  "K02575" = "Nitrate transporter 1/2 (NRT1/2 family)",
+  "K15577" = "High-affinity nitrate transporter (NRT2)",
+  "K15578" = "Nitrite transporter (NAR1 family)",
+  "K11959" = "Urea transporter (DUR3 family)",
+  "K11960" = "Urea-proton symporter (UT family)"
+)
+nconc_914_ko_filtered <- nconc_914_ko %>%
+  filter(KEGG_ko %in% ko_list)#%>%
+  #filter(padj < 0.05 & abs(log2FoldChange) > 2)
+nconc_914_ko_filtered <- nconc_914_ko_filtered %>%
+  mutate(KEGG_ko_function = sapply(KEGG_ko, function(x) KO_function_map[x]))
+
+nconc_914_ko_filtered <- nconc_914_ko_filtered %>%
+  mutate(Combined = paste(Row.names, KEGG_ko_function, sep = " - "))
+
+logFC_n_conc_914 <- as.matrix(nconc_914_ko_filtered$log2FoldChange)
+
+rownames(logFC_n_conc_914) <- nconc_914_ko_filtered$Combined
+
+breaks <- max(abs(logFC_n_conc_914))
+pheatmap(logFC_n_conc_914,
+         breaks= seq(-breaks, breaks, length.out = 100),
+         cluster_rows= TRUE, 
+         cluster_cols=FALSE, 
+         show_rownames=TRUE, 
+         show_colnames=FALSE)
+```
+Bubble plot
+```{R}
+nconc_874_ko_filtered <- nconc_874_ko %>%
+  filter(KEGG_ko %in% ko_list)
+nconc_914_ko_filtered <- nconc_914_ko %>%
+  filter(KEGG_ko %in% ko_list)
+merged_nconc_df <- merge(nconc_874_ko_filtered, nconc_914_ko_filtered, by = "Row.names", all = TRUE)
+#write.csv(merged_nconc_df, "merged_nconc_df.csv", row.names = FALSE)
+
+#nconc_only_874 <- merged_nconc_df[is.na(merged_nconc_df$log2FoldChange.y), "Row.names"]
+#nconc_only_914 <- merged_nconc_df[is.na(merged_nconc_df$log2FoldChange.x), "Row.names"]
+#nconc_914_in_874 <- nconc_874_ko %>%
+  #filter(Row.names %in% nconc_only_914)
+#write.csv(nconc_914_in_874, "nconc_914_in_874.csv", row.names = FALSE)
+
+#nconc_874_in_914 <- nconc_914_ko %>%
+  #filter(Row.names %in% nconc_only_874)
+#write.csv(nconc_874_in_914, "nconc_874_in_914.csv", row.names = FALSE)
+
+setwd("C:/Users/miahm/R/Nitrogen Experiment/DE")
+merged_nconc_df <- read.csv("merged_nconc_df-edited.csv", header=TRUE)
+merged_nconc_df$strain <- factor(merged_nconc_df$strain, levels = c("914", "874"))
+nitrate_nconc <- merged_nconc_df %>%
+  filter(KEGG_ko=="K02575")
+amt_nconc <- merged_nconc_df %>%
+  filter(KEGG_ko=="K03320")
+
+n_labs <- c("Nitrate Transporters", "Ammonium Transporters (AMTs)")
+names(n_labs) <- c("K02575", "K03320")
+
+library("scales")
+
+nitrate_plot <- ggplot(nitrate_nconc, aes(x = OG, y = as.factor(strain), size = baseMean, color = log2FoldChange)) +
+  geom_point() +
+  geom_point(color = "black", shape =1)+
+  geom_point(data = nitrate_nconc %>% filter(is.na(baseMean)), aes(x = OG, y = as.factor(strain)), 
+             shape = 4, size = 2) + # "x" for baseMean = 0\
+  facet_wrap(~KEGG_ko, labeller = labeller(KEGG_ko = n_labs)) +
+  scale_size_continuous(name = "Base Mean", range = c(3,12)) +
+  scale_color_gradientn(colours = c("blue","white","red","darkred"), 
+                         values = rescale(c(-5,0,7,14)),
+                         guide = "colorbar", limits=c(-5,14), name = "Log2 Fold Change")+
+  theme_bw() +
+  labs(x = NULL, y = NULL) +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(angle = 90),
+        panel.grid = element_blank())
+
+# Plot for amt_nconc
+amt_plot <- ggplot(amt_nconc, aes(x = OG, y = as.factor(strain), size = baseMean, color = log2FoldChange)) +
+  geom_point() +
+  geom_point(color = "black", shape =1)+
+  geom_point(data = amt_nconc %>% filter(is.na(baseMean)), aes(x = OG, y = as.factor(strain)), 
+             shape = 4, size = 2) + # "x" for baseMean = 0
+  facet_wrap(~KEGG_ko, labeller = labeller(KEGG_ko = n_labs)) +
+  scale_size_continuous(name = "Base Mean", range = c(3,12)) +
+  scale_color_gradientn(colours = c("blue","white","red","darkred"), 
+                         values = rescale(c(-5,0,7,14)),
+                         guide = "colorbar", limits=c(-5,14), name = "Log2 Fold Change")+
+  theme_bw() +
+  labs(x = NULL, y = NULL) +
+  theme(axis.text.x = element_text(angle = 90),
+        axis.text.y = element_text(angle = 90),
+        panel.grid = element_blank())
+
+
+n_transporters_plot <- ggarrange(amt_plot, nitrate_plot, common.legend = TRUE, legend = "bottom", nrow = 1)
+n_transporters_plot <- annotate_figure(n_transporters_plot,
+                left = text_grob("Strain", rot = 90, hjust = -1.1),
+                bottom = text_grob("OGs", vjust = -5))
+n_transporters_plot
+
+ggsave(filename = "n_transporters_plot.png", n_transporters_plot, width = 7.75, height = 3, dpi = 300)
+```
+874
+```{R}
+highTemp_874 <- results(dds_874, contrast=c("temp_c", "18", "22"), alpha = 0.05)
+
+highTemp_874_df <- as.data.frame(highTemp_874)
+highTemp_874_df <- merge(highTemp_874_df, eggnog_annotations, by.x = "row.names", by.y = "orthogroup", all.x = TRUE)
+rownames(highTemp_874_df) <- highTemp_874_df$Row.names
+highTemp_874_df$Row.names <- NULL
+highTemp_874_df <- highTemp_874_df[1:(length(highTemp_874_df)-1)]
+highTemp_874_ko <- highTemp_874_df %>%
+  separate_rows(KEGG_ko, sep = ",") %>%
+  filter(!is.na(KEGG_ko) & KEGG_ko != "") %>%
+  mutate(KEGG_ko = str_remove(KEGG_ko, "^ko:"))
+
+ko_list <- c("K02703", "K02706", "K02705", "K02704", "K02707", "K02708", "K02713", "K02711", "K02709", "K02710", "K02712", "K02714", "K02718", "K02724", "K02723", "K08902", "K08903", "K02716", "K02717", "K08901", "K03541", "K03542", "K02721", "K02720", "K02719", "K02722", "K08904", "K02689", "K02690", "K02691", "K02692", "K02693", "K02694", "K02696", "K02697", "K02698", "K02699", "K08905", "K02695", "K02701", "K14332", "K02700", "K02702", "K02634", "K02635", "K02636", "K02637", "K02640", "K02642", "K02643", "K03689", "K02638", "K02639", "K02641", "K08906", "K02114", "K02112", "K02115", "K02111", "K02113", "K02109", "K02110", "K02108")
+
+# Combine all categories
+photosynthesis_KOs <- c(K02703 = "photosystem II P680 reaction center D1 protein",
+K02706 = "photosystem II P680 reaction center D2 protein",
+K02705 = "photosystem II CP43 chlorophyll apoprotein",
+K02704 = "photosystem II CP47 chlorophyll apoprotein",
+K02707 = "photosystem II cytochrome b559 subunit alpha",
+K02708 = "photosystem II cytochrome b559 subunit beta",
+K02713 = "photosystem II PsbL protein",
+K02711 = "photosystem II PsbJ protein",
+K02709 = "photosystem II PsbH protein",
+K02710 = "photosystem II PsbI protein",
+K02712 = "photosystem II PsbK protein",
+K02714 = "photosystem II PsbM protein",
+K02718 = "photosystem II PsbT protein",
+K02724 = "photosystem II PsbZ protein",
+K02723 = "photosystem II PsbY protein",
+K08902 = "photosystem II Psb27 protein",
+K08903 = "photosystem II 13kDa protein",
+K02716 = "photosystem II oxygen-evolving enhancer protein 1",
+K02717 = "photosystem II oxygen-evolving enhancer protein 2",
+K08901 = "photosystem II oxygen-evolving enhancer protein 3",
+K03541 = "photosystem II 10kDa protein",
+K03542 = "photosystem II 22kDa protein",
+K02721 = "photosystem II PsbW protein",
+K02720 = "photosystem II cytochrome c550",
+K02719 = "photosystem II PsbU protein",
+K02722 = "photosystem II PsbX protein",
+K08904 = "photosystem II Psb28-2 protein",
+K02689 = "photosystem I P700 chlorophyll a apoprotein A1",
+K02690 = "photosystem I P700 chlorophyll a apoprotein A2",
+K02691 = "photosystem I iron-sulfur center",
+K02692 = "photosystem I subunit II",
+K02693 = "photosystem I subunit IV",
+K02694 = "photosystem I subunit III",
+K02696 = "photosystem I subunit VIII",
+K02697 = "photosystem I subunit IX",
+K02698 = "photosystem I subunit X",
+K02699 = "photosystem I subunit XI",
+K08905 = "photosystem I subunit V",
+K02695 = "photosystem I subunit VI",
+K02701 = "photosystem I subunit PsaN",
+K14332 = "photosystem I subunit PsaO",
+K02700 = "photosystem I subunit XII",
+K02702 = "photosystem I 4.8kDa protein",
+K02634 = "apocytochrome f",
+K02635 = "cytochrome b6",
+K02636 = "cytochrome b6-f complex iron-sulfur subunit",
+K02637 = "cytochrome b6-f complex subunit 4",
+K02640 = "cytochrome b6-f complex subunit 5",
+K02642 = "cytochrome b6-f complex subunit 6",
+K02643 = "cytochrome b6-f complex subunit 7",
+K03689 = "cytochrome b6-f complex subunit 8",
+K02638 = "plastocyanin",
+K02639 = "ferredoxin",
+K02641 = "ferredoxin--NADP+ reductase",
+K08906 = "cytochrome c6",
+K02114 = "F-type H+-transporting ATPase subunit epsilon",
+K02112 = "F-type H+/Na+-transporting ATPase subunit beta",
+K02115 = "F-type H+-transporting ATPase subunit gamma",
+K02111 = "F-type H+/Na+-transporting ATPase subunit alpha",
+K02113 = "F-type H+-transporting ATPase subunit delta",
+K02109 = "F-type H+-transporting ATPase subunit b",
+K02110 = "F-type H+-transporting ATPase subunit c",
+K02108 = "F-type H+-transporting ATPase subunit a")
+
+highTemp_874_ko_filtered <- highTemp_874_ko %>%
+  filter(KEGG_ko %in% ko_list) %>%
+  filter(padj<0.05)
+highTemp_874_ko_filtered <- highTemp_874_ko_filtered %>%
+  mutate(KEGG_ko_function = sapply(KEGG_ko, function(x) photosynthesis_KOs[x]))
+
+logFC_highTemp_874 <- as.matrix(highTemp_874_ko_filtered$log2FoldChange)
+rownames(logFC_highTemp_874) <- highTemp_874_ko_filtered$KEGG_ko_function
+pheatmap(logFC_highTemp_874, 
+         cluster_rows= TRUE, 
+         cluster_cols=FALSE, 
+         show_rownames=TRUE, 
+         show_colnames=FALSE)
+```
+914
+```{R}
+highTemp_914 <- results(dds_914, contrast=c("temp_c", "18", "28"), alpha = 0.05)
+
+highTemp_914_df <- as.data.frame(highTemp_914)
+highTemp_914_df <- merge(highTemp_914_df, eggnog_annotations, by.x = "row.names", by.y = "orthogroup", all.x = TRUE)
+highTemp_914_df <- highTemp_914_df[1:(length(highTemp_914_df)-1)]
+highTemp_914_ko <- highTemp_914_df %>%
+  separate_rows(KEGG_ko, sep = ",") %>%
+  filter(!is.na(KEGG_ko) & KEGG_ko != "") %>%
+  mutate(KEGG_ko = str_remove(KEGG_ko, "^ko:"))
+
+ko_list <- c("K02703", "K02706", "K02705", "K02704", "K02707", "K02708", "K02713", "K02711", "K02709", "K02710", "K02712", "K02714", "K02718", "K02724", "K02723", "K08902", "K08903", "K02716", "K02717", "K08901", "K03541", "K03542", "K02721", "K02720", "K02719", "K02722", "K08904", "K02689", "K02690", "K02691", "K02692", "K02693", "K02694", "K02696", "K02697", "K02698", "K02699", "K08905", "K02695", "K02701", "K14332", "K02700", "K02702", "K02634", "K02635", "K02636", "K02637", "K02640", "K02642", "K02643", "K03689", "K02638", "K02639", "K02641", "K08906", "K02114", "K02112", "K02115", "K02111", "K02113", "K02109", "K02110", "K02108")
+
+# Combine all categories
+photosynthesis_KOs <- c(K02703 = "photosystem II P680 reaction center D1 protein",
+K02706 = "photosystem II P680 reaction center D2 protein",
+K02705 = "photosystem II CP43 chlorophyll apoprotein",
+K02704 = "photosystem II CP47 chlorophyll apoprotein",
+K02707 = "photosystem II cytochrome b559 subunit alpha",
+K02708 = "photosystem II cytochrome b559 subunit beta",
+K02713 = "photosystem II PsbL protein",
+K02711 = "photosystem II PsbJ protein",
+K02709 = "photosystem II PsbH protein",
+K02710 = "photosystem II PsbI protein",
+K02712 = "photosystem II PsbK protein",
+K02714 = "photosystem II PsbM protein",
+K02718 = "photosystem II PsbT protein",
+K02724 = "photosystem II PsbZ protein",
+K02723 = "photosystem II PsbY protein",
+K08902 = "photosystem II Psb27 protein",
+K08903 = "photosystem II 13kDa protein",
+K02716 = "photosystem II oxygen-evolving enhancer protein 1",
+K02717 = "photosystem II oxygen-evolving enhancer protein 2",
+K08901 = "photosystem II oxygen-evolving enhancer protein 3",
+K03541 = "photosystem II 10kDa protein",
+K03542 = "photosystem II 22kDa protein",
+K02721 = "photosystem II PsbW protein",
+K02720 = "photosystem II cytochrome c550",
+K02719 = "photosystem II PsbU protein",
+K02722 = "photosystem II PsbX protein",
+K08904 = "photosystem II Psb28-2 protein",
+K02689 = "photosystem I P700 chlorophyll a apoprotein A1",
+K02690 = "photosystem I P700 chlorophyll a apoprotein A2",
+K02691 = "photosystem I iron-sulfur center",
+K02692 = "photosystem I subunit II",
+K02693 = "photosystem I subunit IV",
+K02694 = "photosystem I subunit III",
+K02696 = "photosystem I subunit VIII",
+K02697 = "photosystem I subunit IX",
+K02698 = "photosystem I subunit X",
+K02699 = "photosystem I subunit XI",
+K08905 = "photosystem I subunit V",
+K02695 = "photosystem I subunit VI",
+K02701 = "photosystem I subunit PsaN",
+K14332 = "photosystem I subunit PsaO",
+K02700 = "photosystem I subunit XII",
+K02702 = "photosystem I 4.8kDa protein",
+K02634 = "apocytochrome f",
+K02635 = "cytochrome b6",
+K02636 = "cytochrome b6-f complex iron-sulfur subunit",
+K02637 = "cytochrome b6-f complex subunit 4",
+K02640 = "cytochrome b6-f complex subunit 5",
+K02642 = "cytochrome b6-f complex subunit 6",
+K02643 = "cytochrome b6-f complex subunit 7",
+K03689 = "cytochrome b6-f complex subunit 8",
+K02638 = "plastocyanin",
+K02639 = "ferredoxin",
+K02641 = "ferredoxin--NADP+ reductase",
+K08906 = "cytochrome c6",
+K02114 = "F-type H+-transporting ATPase subunit epsilon",
+K02112 = "F-type H+/Na+-transporting ATPase subunit beta",
+K02115 = "F-type H+-transporting ATPase subunit gamma",
+K02111 = "F-type H+/Na+-transporting ATPase subunit alpha",
+K02113 = "F-type H+-transporting ATPase subunit delta",
+K02109 = "F-type H+-transporting ATPase subunit b",
+K02110 = "F-type H+-transporting ATPase subunit c",
+K02108 = "F-type H+-transporting ATPase subunit a")
+
+highTemp_914_ko_filtered <- highTemp_914_ko %>%
+  filter(KEGG_ko %in% ko_list) %>%
+  filter(padj < 0.05)
+highTemp_914_ko_filtered <- highTemp_914_ko_filtered %>%
+  mutate(KEGG_ko_function = sapply(KEGG_ko, function(x) photosynthesis_KOs[x]))
+
+logFC_highTemp_914 <- as.matrix(highTemp_914_ko_filtered$log2FoldChange)
+rownames(logFC_highTemp_914) <- highTemp_914_ko_filtered$KEGG_ko_function
+pheatmap(logFC_highTemp_914, 
+         cluster_rows= TRUE, 
+         cluster_cols=FALSE, 
+         show_rownames=TRUE, 
+         show_colnames=FALSE)
+```
+```{R}
+setwd("C:/Users/miahm/R/Nitrogen Experiment/16S_analysis")
+osmo_paths <- read_csv("osmo_pathways.csv")
+osmo_paths <- osmo_paths %>%
+  separate_rows(ORTHOLOGY, sep = ";") %>%
+  filter(!is.na(ORTHOLOGY) & ORTHOLOGY != "") %>%
+  mutate(KEGG_Function = paste(ORTHOLOGY, NAMED_GROUP, sep = "-" ))
+```
+
+```{R}
+highTemp_914 <- results(dds_914, contrast=c("temp_c", "18", "28"), alpha = 0.05)
+
+highTemp_914_df <- as.data.frame(highTemp_914)
+highTemp_914_df <- merge(highTemp_914_df, eggnog_annotations, by.x = "row.names", by.y = "orthogroup", all.x = TRUE)
+highTemp_914_df <- highTemp_914_df[1:(length(highTemp_914_df)-1)]
+highTemp_914_ko <- highTemp_914_df %>%
+  separate_rows(KEGG_ko, sep = ",") %>%
+  filter(!is.na(KEGG_ko) & KEGG_ko != "") %>%
+  mutate(KEGG_ko = str_remove(KEGG_ko, "^ko:"))
+
+#ko_list <- c("K00928", "K00133", "K00836", "K06718", "K06720", "K15783", "K15784", "K15785", "K15786", "K17755", "K00108", "K1144", "K00499", "K00130", "K14085", "K00479", "K21832", "K00309", "K00315", "K00301", "K00302", "K00303", "K00304", "K00305", "K21833", "K21834", "K25960", "K25961", "K00600", "K01752", "K01754", "K00931", "K00147", "K12657", "K00286", "K00318", "K00294", "K13821", "K16953", "K17486", "K00264", "K00265", "K01580", "K00045", "K00007", "K19270", "K02798", "K00009")
+
+highTemp_914_ko_filtered <- highTemp_914_ko %>%
+  filter(KEGG_ko %in% osmo_paths$ORTHOLOGY) %>%
+  filter(padj < 0.05 & abs(log2FoldChange) > 2)
+
+logFC_highTemp_914 <- as.matrix(highTemp_914_ko_filtered$log2FoldChange)
+rownames(logFC_highTemp_914) <- highTemp_914_ko_filtered$KEGG_ko
+pheatmap(logFC_highTemp_914, 
+         cluster_rows= TRUE, 
+         cluster_cols=FALSE, 
+         show_rownames=TRUE, 
+         show_colnames=FALSE)
+```
+
+FUNCTION
+```{R}
+plot_common_genes_heatmap <- function(result1, result2, annotations, ko_list, ko_descriptions) {
+  process_result <- function(result, annotations, ko_list) {
+    # Convert DESeq2 result to a data frame
+    result_df <- as.data.frame(result)
+    result_df <- merge(result_df, annotations, by.x = "row.names", by.y = "orthogroup", all.x = TRUE)
+    result_df <- result_df[1:(length(result_df)-1)]
+
+    # Process KEGG annotations
+    result_ko <- result_df %>%
+      separate_rows(KEGG_ko, sep = ",") %>%
+      filter(!is.na(KEGG_ko) & KEGG_ko != "") %>%
+      mutate(KEGG_ko = str_remove(KEGG_ko, "^ko:")) %>%
+      filter(KEGG_ko %in% ko_list, padj < 0.05)
+
+    result_ko <- result_ko %>%
+      mutate(KEGG_ko_function = sapply(KEGG_ko, function(x) ko_descriptions[x]))
+
+    return(result_ko)
+  }
+
+  # Process both results
+  result1_ko <- process_result(result1, annotations, ko_list)
+  result2_ko <- process_result(result2, annotations, ko_list)
+
+  # Find common genes based on KEGG orthogroup
+  common_genes <- intersect(result1_ko$Row.names, result2_ko$Row.names)
+
+  # Filter for common genes
+  result1_common <- result1_ko %>% filter(Row.names %in% common_genes)
+  result2_common <- result2_ko %>% filter(Row.names %in% common_genes)
+
+  # Combine log2FoldChange values
+  combined_logFC <- full_join(result1_common %>% select(KEGG_ko, log2FoldChange),
+                              result2_common %>% select(KEGG_ko, log2FoldChange),
+                              by = "KEGG_ko",
+                              suffix = c("_result1", "_result2"))
+
+  combined_logFC <- combined_logFC %>%
+    mutate(across(starts_with("log2FoldChange"), ~ replace_na(., 0)))
+
+  # Prepare matrix for heatmap
+  heatmap_matrix <- as.matrix(combined_logFC %>% select(log2FoldChange_result1, log2FoldChange_result2))
+  rownames(heatmap_matrix) <- sapply(combined_logFC$KEGG_ko, function(x) ko_descriptions[x])
+
+  # Plot heatmap
+  pheatmap(heatmap_matrix,
+           cluster_rows = TRUE,
+           cluster_cols = FALSE,
+           show_rownames = TRUE,
+           show_colnames = TRUE,
+           color = colorRampPalette(c("blue", "white", "red"))(50),
+           main = "Heatmap of Common Genes")
+
+  # Print table of log2FoldChange values
+  print(knitr::kable(combined_logFC, col.names = c("KEGG KO", "Log2FoldChange (Result 1)", "Log2FoldChange (Result 2)"),
+                     caption = "Log2FoldChange Values for Common Genes"))
+}
+```
+914-Photosynthesis
+```{R}
+eggnog_annotations <- read.delim("eggnog_annotations_by_orthogroup.tsv", header = TRUE, sep = "\t", row.names = NULL)
+colnames(eggnog_annotations) <- colnames(eggnog_annotations)[-1]
+
+highTemp_874 <- results(dds_874, contrast=c("temp_c", "18", "25"), alpha = 0.05)
+modTemp_874 <- results(dds_874, contrast=c("temp_c", "18", "22"), alpha = 0.05)
+
+ps_KOs <- c("K02703", "K02706", "K02705", "K02704", "K02707", "K02708", "K02713", "K02711", "K02709", "K02710", "K02712", "K02714", "K02718", "K02724", "K02723", "K08902", "K08903", "K02716", "K02717", "K08901", "K03541", "K03542", "K02721", "K02720", "K02719", "K02722", "K08904", "K02689", "K02690", "K02691", "K02692", "K02693", "K02694", "K02696", "K02697", "K02698", "K02699", "K08905", "K02695", "K02701", "K14332", "K02700", "K02702", "K02634", "K02635", "K02636", "K02637", "K02640", "K02642", "K02643", "K03689", "K02638", "K02639", "K02641", "K08906", "K02114", "K02112", "K02115", "K02111", "K02113", "K02109", "K02110", "K02108")
+
+ps_KO_annotations <- c(K02703 = "photosystem II P680 reaction center D1 protein",
+K02706 = "photosystem II P680 reaction center D2 protein",
+K02705 = "photosystem II CP43 chlorophyll apoprotein",
+K02704 = "photosystem II CP47 chlorophyll apoprotein",
+K02707 = "photosystem II cytochrome b559 subunit alpha",
+K02708 = "photosystem II cytochrome b559 subunit beta",
+K02713 = "photosystem II PsbL protein",
+K02711 = "photosystem II PsbJ protein",
+K02709 = "photosystem II PsbH protein",
+K02710 = "photosystem II PsbI protein",
+K02712 = "photosystem II PsbK protein",
+K02714 = "photosystem II PsbM protein",
+K02718 = "photosystem II PsbT protein",
+K02724 = "photosystem II PsbZ protein",
+K02723 = "photosystem II PsbY protein",
+K08902 = "photosystem II Psb27 protein",
+K08903 = "photosystem II 13kDa protein",
+K02716 = "photosystem II oxygen-evolving enhancer protein 1",
+K02717 = "photosystem II oxygen-evolving enhancer protein 2",
+K08901 = "photosystem II oxygen-evolving enhancer protein 3",
+K03541 = "photosystem II 10kDa protein",
+K03542 = "photosystem II 22kDa protein",
+K02721 = "photosystem II PsbW protein",
+K02720 = "photosystem II cytochrome c550",
+K02719 = "photosystem II PsbU protein",
+K02722 = "photosystem II PsbX protein",
+K08904 = "photosystem II Psb28-2 protein",
+K02689 = "photosystem I P700 chlorophyll a apoprotein A1",
+K02690 = "photosystem I P700 chlorophyll a apoprotein A2",
+K02691 = "photosystem I iron-sulfur center",
+K02692 = "photosystem I subunit II",
+K02693 = "photosystem I subunit IV",
+K02694 = "photosystem I subunit III",
+K02696 = "photosystem I subunit VIII",
+K02697 = "photosystem I subunit IX",
+K02698 = "photosystem I subunit X",
+K02699 = "photosystem I subunit XI",
+K08905 = "photosystem I subunit V",
+K02695 = "photosystem I subunit VI",
+K02701 = "photosystem I subunit PsaN",
+K14332 = "photosystem I subunit PsaO",
+K02700 = "photosystem I subunit XII",
+K02702 = "photosystem I 4.8kDa protein",
+K02634 = "apocytochrome f",
+K02635 = "cytochrome b6",
+K02636 = "cytochrome b6-f complex iron-sulfur subunit",
+K02637 = "cytochrome b6-f complex subunit 4",
+K02640 = "cytochrome b6-f complex subunit 5",
+K02642 = "cytochrome b6-f complex subunit 6",
+K02643 = "cytochrome b6-f complex subunit 7",
+K03689 = "cytochrome b6-f complex subunit 8",
+K02638 = "plastocyanin",
+K02639 = "ferredoxin",
+K02641 = "ferredoxin--NADP+ reductase",
+K08906 = "cytochrome c6",
+K02114 = "F-type H+-transporting ATPase subunit epsilon",
+K02112 = "F-type H+/Na+-transporting ATPase subunit beta",
+K02115 = "F-type H+-transporting ATPase subunit gamma",
+K02111 = "F-type H+/Na+-transporting ATPase subunit alpha",
+K02113 = "F-type H+-transporting ATPase subunit delta",
+K02109 = "F-type H+-transporting ATPase subunit b",
+K02110 = "F-type H+-transporting ATPase subunit c",
+K02108 = "F-type H+-transporting ATPase subunit a")
+
+plot_common_genes_heatmap(
+  modTemp_874, 
+  highTemp_874, 
+  eggnog_annotations, 
+  ps_KOs, 
+  ps_KO_annotations
+)
+```
+
+```{R}
+library(KEGGREST)
+library(clusterProfiler)
+library(enrichplot)
+#GSEA
+gene_list <- setNames(nconc_874_ko$log2FoldChange, nconc_874_ko$KEGG_ko)
+gene_list <- sort(gene_list, decreasing = TRUE)
+
+gsea_results <- gseKEGG(geneList = gene_list,
+                        organism = "ehx", #using ko numbers (not organism sp
+                        keyType = "kegg",
+                        pvalueCutoff = 0.05)
+
+dotplot(gsea_results, showCategory=50, split=".sign") + facet_grid(.~.sign)
+ridgeplot(gsea_results) 
+
+```

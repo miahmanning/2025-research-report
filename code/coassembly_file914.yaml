@@ -1,0 +1,44 @@
+    [
+      {        
+        orientation: "fr",
+        type: "paired-end",
+        left reads: [
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM001_L003_R1_001_val_1.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM002_L003_R1_001_val_1.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM003_L003_R1_001_val_1.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM004_L003_R1_001_val_1.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM005_L003_R1_001_val_1.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM006_L003_R1_001_val_1.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM007_L003_R1_001_val_1.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM008_L003_R1_001_val_1.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM009_L003_R1_001_val_1.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM010_L003_R1_001_val_1.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM011_L003_R1_001_val_1.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM012_L003_R1_001_val_1.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM013_L003_R1_001_val_1.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM014_L003_R1_001_val_1.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM015_L003_R1_001_val_1.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM016_L003_R1_001_val_1.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM017_L003_R1_001_val_1.fq.gz"
+        ],
+        right reads: [
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM001_L003_R2_001_val_2.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM002_L003_R2_001_val_2.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM003_L003_R2_001_val_2.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM004_L003_R2_001_val_2.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM005_L003_R2_001_val_2.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM006_L003_R2_001_val_2.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM007_L003_R2_001_val_2.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM008_L003_R2_001_val_2.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM009_L003_R2_001_val_2.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM010_L003_R2_001_val_2.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM011_L003_R2_001_val_2.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM012_L003_R2_001_val_2.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM013_L003_R2_001_val_2.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM014_L003_R2_001_val_2.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM015_L003_R2_001_val_2.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM016_L003_R2_001_val_2.fq.gz",
+          "/proj/omics/alexander/mmanning/test-2024-nitrogen-ehux/code/outputs/trimqc/MM017_L003_R2_001_val_2.fq.gz"
+        ]
+      }
+    ]

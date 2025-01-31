@@ -1,0 +1,1038 @@
+---
+title: "16S rRNA and Osmolytes"
+output: html_notebook
+---
+
+**Load in Libraries**
+
+```{r, message=FALSE}
+packages <- c("qiime2R","ALDEx2", "CoDaSeq", "phyloseq", "ggplot2", "tidyr", "dplyr", "gridExtra", "viridis", "magrittr", "vegan", "stringr", "ggupset", "tidyverse", "ggpubr", "microViz", "patchwork", "ggrepel")
+
+install_and_load <- function(pkg) {
+  if (!require(pkg, character.only = TRUE)) {
+    install.packages(pkg, dependencies = TRUE)
+    library(pkg, character.only = TRUE)
+  } else {
+    library(pkg, character.only = TRUE)
+  }
+}
+
+lapply(packages, install_and_load)
+```
+
+**Import scripts**
+
+```{R, message=FALSE}
+scripts <- c("graphical_methods.R",
+             "tree_methods.R",
+             "plot_merged_trees.R",
+             "specificity_methods.R",
+             "ternary_plot.R",
+             "richness.R",
+             "edgePCA.R",
+             "copy_number_correction.R",
+             "import_frogs.R",
+             "prevalence.R",
+             "compute_niche.R")
+urls <- paste0("https://raw.githubusercontent.com/mahendra-mariadassou/phyloseq-extended/master/R/", scripts)
+
+for (url in urls) {
+  source(url)
+}
+```
+
+**Make Phyloseq Object**
+
+```{R}
+ps<-qza_to_phyloseq(features="table.qza")
+
+meta<- read.csv("SampleMetaData.csv", header = TRUE)
+meta <- meta[meta$Project %in% c("Miah, Nitrogen Exp", "blank"), ]
+meta$SampleID <- paste0(meta$SampleID, "_6283")
+row.names(meta)<- meta$SampleID
+
+META <- sample_data(meta)
+```
+
+Tax: silver 138-99 taxonomy trimmed to match the primers used on the samples
+
+```{R}
+taxonomy <- read.csv("taxonomy.csv", stringsAsFactors = FALSE)
+
+names(taxonomy) <- c("row", "tax", "Confidence") #change the headers (column names)
+row.names(taxonomy) <-taxonomy[[1]] #move the feature ID column to become the row names
+taxonomy <- taxonomy[,(-1)] #delete the feature ID  column 
+taxonomy <-  separate(taxonomy, tax, c("Domain","Phylum", "Class", "Order", "Family", "Genus", "Species", "D7", "D8", "D9", "D10", "D11", "D12", "D13", "D14"), sep = ";", fill = "right")
+taxonomy <- taxonomy[,c(1:7)]
+
+taxonomy$D0 <- with(taxonomy, ifelse(Order == " o__Chloroplast", "Chloroplast", "Bacteria"))
+
+col_order<- c("D0", "Domain","Phylum", "Class", "Order", "Family", "Genus", "Species" )
+taxonomy<- taxonomy[, col_order]
+
+taxmat <- as.matrix(taxonomy)
+TAX = tax_table(taxmat)
+
+ps = merge_phyloseq(ps, TAX, META) 
+```
+
+**Chloroplast Sequences**
+
+```{R}
+ps<- subset_taxa(ps, D0 %in% c("Bacteria", "Chloroplast") )
+psra<- transform_sample_counts(ps, function(OTU) 100* OTU/sum(OTU))
+glomD1<- tax_glom(psra, 'D0')
+```
+
+```{R}
+taxabarplot<-plot_bar(glomD1, x= "SampleID", fill = "D0") +  scale_y_continuous(expand = c(0, 0)) + ggtitle("")  + theme(legend.title=element_blank()) + geom_bar(aes(fill=D0), stat="identity", position="stack", width =0.9) +theme_classic() + theme(text = element_text(size=14))+theme(axis.text.x = element_text(angle = 90)) + xlab("Sample") + ylab("Relative Abundance (%)") + theme(text = element_text(size=14)) + scale_fill_manual(values=c("lightgrey", "#7BB03B"), name = "") + xlab("") +facet_grid(~Project, scales = "free_x")
+
+taxabarplot
+```
+
+Remove chloroplast sequences from the data:
+
+```{R}
+ps_nochloro <- subset_taxa(ps, Order != " o__Chloroplast" & Domain != "Unassigned")
+```
+
+**Rarefaction Curves**
+
+```{R, echo=FASLE}
+ggrare(ps_nochloro, step = 1000, color = "Project", label = "SampleID", se = FALSE)
+```
+
+**Alpha Diversity**
+
+```{R}
+totalOTU <- data.frame(otu_table(ps_nochloro))
+totalOTU$rowsu <- rowSums(totalOTU)
+totalOTUnotzero <- totalOTU %>% filter(rowsu >1)
+dim(totalOTUnotzero)
+```
+
+```{R}
+plugin <- ps_nochloro %>%
+            estimate_richness(measures = "Observed") %$% Observed
+Project <- ps_nochloro %>% sample_data %$% Project
+
+
+richness<- data.frame(plugin, Project )
+names(richness) <- c("richness", "Project")
+
+
+richness %>%group_by(Project) %>% summarize(mean = mean(richness), min = min(richness), max = max(richness))
+```
+
+```{R}
+RichPlot<- richness %>% ggplot( aes(x=Project, y=richness))+geom_boxplot() + theme_bw()  +ylab("Observed Richness") +ggtitle("")+ theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank()) +xlab("")#+ limy(0, 90)
+
+RichPlot
+```
+
+**Shannon Index**
+
+```{R}
+plugin <- ps_nochloro  %>%
+            estimate_richness(measures = "Shannon") %$% Shannon
+shannon<- data.frame(plugin, Project)
+names(shannon) <- c("Shannon", "Project")
+
+shanPlot<- ggplot(shannon, aes(x=Project, y=Shannon))+geom_boxplot() + theme_bw()  + theme(text = element_text(size=14)) +ylab("Shannon Index") +ggtitle("") + theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank()) +xlab("")
+
+shanPlot
+```
+
+# Uspet Plot
+
+```{R}
+ps_nochloro <- subset_taxa(ps, Order != " o__Chloroplast" & Domain != "Unassigned")
+miah <- subset_samples(ps_nochloro, Project == "Miah, Nitrogen Exp")                                   
+miah = filter_taxa(miah, function(x) sum(x) > 1, TRUE)
+
+sample_data_df <- as(sample_data(miah), "data.frame")
+sample_data_df <- sample_data_df %>%
+  mutate(condition = sub(", [A-Za-z]$", "", SampleInfo_Rep))
+sample_data_df <- sample_data(sample_data_df)
+sample_data(miah) <- sample_data_df
+
+asv_table <- otu_table(miah)
+asv_df <- as.data.frame(as(asv_table, "matrix"))
+
+# Change columns names
+colnames(asv_df) <- sample_data_df$condition[match(colnames(asv_df), sample_data_df$SampleID)]
+asv_df <- as.data.frame(asv_df)
+
+#Sum the rows with common column names
+asv_df<-t(rowsum(t(asv_df), group = colnames(asv_df), na.rm = T))
+
+#Presence/absence
+binary_transform <- function(x) {
+  ifelse(x > 0, 1, 0)
+}
+asv_df <- apply(asv_df, 2, binary_transform)
+
+#Different text options
+text_scale_options <- c(1.3, 1.3, 1, 1, 2, 0.75)
+
+mb_ratio1 <- c(0.65,0.35)
+
+set_vars <- colnames(asv_df)
+
+asv_df <- as.data.frame(as(asv_df, "matrix"))
+
+TAX
+
+transformed = asv_df %>% dplyr::mutate(ASVID=rownames(.)) %>%
+    pivot_longer(cols = !starts_with("ASVID"),names_to="treatment",values_to="present") %>%
+    dplyr::filter(present==1) %>% dplyr::left_join(data.frame(TAX) %>% dplyr::mutate(ASVID=rownames(.))) %>%
+    dplyr::group_by(Family,ASVID) %>% dplyr::summarize(treatment=list(treatment))
+
+transformed_summed=asv_df %>% dplyr::mutate(ASVID=rownames(.)) %>%
+    pivot_longer(cols = !starts_with("ASVID"),names_to="treatment",values_to="present") %>%
+    dplyr::filter(present==1) %>% dplyr::left_join(data.frame(TAX) %>% dplyr::mutate(ASVID=rownames(.))) %>%
+    dplyr::group_by(Family) %>% dplyr::tally() %>% dplyr::filter(n>3)
+
+transformed = asv_df %>% dplyr::mutate(ASVID=rownames(.)) %>%
+    pivot_longer(cols = !starts_with("ASVID"),names_to="treatment",values_to="present") %>%
+    dplyr::filter(present==1) %>% dplyr::left_join(data.frame(TAX) %>% dplyr::mutate(ASVID=rownames(.))) %>%
+    dplyr::mutate(Family=dplyr::case_when(Family %in% transformed_summed$Family~Family,
+                                  TRUE~"Other")) %>%
+    dplyr::group_by(Family,ASVID) %>% dplyr::summarize(treatment=list(treatment))
+
+colors=c('#e9e9e9','#C14450','#f0b08f','#c2aba6','#60555f','#3c6481','#9fd6e6','#256F64','#63a375')
+
+red<- c("#EB8B8E","#FBD5E2","#E7B6AF","#AC6873", "#D82354")
+orange <- c("#FAAA6D","#FECF92", '#f0b08f')
+yellow <- c("#FFC317","#F7F4B7", "#CC9C3C")
+green <- c("#16866F","#1E3F1C","#99A339","#516A65","#8BC89F")
+blue <- c("#005694","#B7E1DD","#66879E","#1BAAE2","#5FC8D8")
+purple <- c("#E7D7CE","#A699A9","#60555f","#434582","#81347D", "#B5218E")
+
+colors30 <- c(blue, purple, red, yellow, orange, green, "black")
+```
+
+Bar plot to establish minimum number of ASVs to count as "present" (I chose 3)
+
+```{R}
+transformed_summed$bin <- cut(
+  transformed_summed$n,
+  breaks = c(seq(0, 100, by = 2), Inf),
+  labels = c(seq(0,98, by = 2), ">100"),
+  right = FALSE
+)
+
+# Plot using ggplot2
+ggplot(transformed_summed, aes(x = bin)) +
+  geom_histogram(stat = "count", fill = "steelblue") +
+  theme_minimal() +
+  labs(x = "# of ASVs", y = "# of families") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Consistent colors for all families based on Upset plot
+
+```{R}
+family_list <- unique(transformed$Family)
+num_families <- length(family_list)
+family_colors <- setNames(colors30[1:num_families], family_list)
+```
+
+```{R}
+upset_plot <- ggplot(transformed,
+       aes(x=treatment)) +
+    geom_bar(aes(fill=Family),color="black") +
+    scale_x_upset(n_intersections = 20, order_by = "degree", sets= c("874, 25C, 10%N",
+                                                                     "874, 25C, 100%N",
+                                                                     "874, 22C, 10%N",
+                                                                     "874, 22C, 100%N",
+                                                                     "874, 18C, 10%N",
+                                                                     "874, 18C, 100%N",
+                                                                     "914, 28C, 10%N",
+                                                                     "914, 28C, 100%N",
+                                                                     "914, 22C, 10%N",
+                                                                     "914, 22C, 100%N",
+                                                                     "914, 18C, 10%N",
+                                                                     "914, 18C, 100%N")) +
+  scale_fill_manual(values=family_colors) + ylab("ASV Count")+ theme_bw()+
+  theme(axis.title.x = element_blank(),
+        axis.text.y = element_text(size=12),
+        axis.title.y = element_text(size = 12),
+        panel.grid = element_blank(),
+        legend.position = "right",
+        legend.text=element_text(size=12))+
+  guides(fill = guide_legend(ncol = 1))
+
+upset_plot
+
+ggsave(filename = "upset.png", upset_plot, width = 14, height = 9.5, dpi = 300)
+```
+```{R}
+asv_df$row_sum <- rowSums(asv_df)
+asv_shared <- asv_df %>%
+  filter(row_sum == 12)
+asv_shared <- taxonomy[rownames(taxonomy) %in% rownames(asv_shared), ]
+```
+
+Tally the number present in each interaction
+
+```{R}
+summary_counts <- transformed %>%
+  group_by(treatment) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  arrange(desc(count))
+
+# Display the total counts data frame
+print(summary_counts)
+# 65, 53, 46, 43, 37
+```
+
+**Beta Diversity**
+
+```{R}
+ps_nochloro_RA<- transform_sample_counts(ps_nochloro, function(OTU) 100* OTU/sum(OTU))
+ps_nochloro_RA_glomF <- tax_glom(ps_nochloro_RA, 'Genus')
+miah <- subset_samples(ps_nochloro_RA_glomF, Project == "Miah, Nitrogen Exp")
+miah = filter_taxa(miah, function(x) sum(x) > 0, TRUE)
+
+taxonomy_table <- as.data.frame(tax_table(miah))
+#taxonomy_table <- taxonomy %>% dplyr::mutate(Family=dplyr::case_when(Family %in% transformed_summed$Family~Family,TRUE~"Other"))
+
+tax_table(miah) <- as.matrix(taxonomy_table)
+sample_data_df <- as(sample_data(miah), "data.frame")
+
+# Define the function to split the Sample column
+split_sample <- function(df) {
+  df %>%
+    separate(Sample, into = c("strain", "temp_C", "n_conc", "rep"), sep = ", ", convert = TRUE) %>%
+    mutate(
+      strain = as.factor(strain),
+      temp_c = as.factor(str_remove(temp_C, "C")),
+      n_conc = as.factor(str_remove(n_conc, "N"))
+    )
+}
+
+# Apply the function to the sample data
+sample_data_transformed <- split_sample(sample_data_df)
+
+# Convert the transformed sample data back to a phyloseq-compatible format
+sample_data_transformed <- sample_data(sample_data_transformed)
+
+# Replace the sample data in the phyloseq object with the transformed data
+sample_data(miah) <- sample_data_transformed
+```
+
+```{R}
+miah_melted <- psmelt(miah)
+avg_abundance <- miah_melted %>%
+  group_by(Family, strain, temp_C, n_conc) %>%
+  summarize(mean_abundance = mean(Abundance, na.rm = TRUE), .groups = 'drop')
+
+avg_abundance_914 <- avg_abundance%>%
+  filter(strain== "914")
+temp_labs_914 <- c("18°C", "22°C", "28°C")
+names(temp_labs_914) <- c("18C", "22C", "28C")
+
+rel_ab_914 <- ggplot(avg_abundance_914, aes(x = n_conc, y = mean_abundance, fill = Family)) +
+  geom_bar(stat = "identity", color = "black", position = "stack", width = 0.9) +
+  facet_grid(strain~temp_C, labeller = labeller(temp_C =temp_labs_914)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        axis.title.y = element_blank(),
+        axis.title.x = element_text(size = 12),
+        legend.title = element_blank(),
+        strip.text.x = element_blank(),
+        strip.text.y = element_text(size = 12)) +
+  xlab("Nitrogen Condition")+
+  scale_x_discrete(labels= c("N limited", "N replete"))+
+  scale_fill_manual(values = family_colors)+
+  labs(fill = "Family")+
+  guides(fill = guide_legend(ncol = 1))
+
+
+avg_abundance_874 <- avg_abundance%>%
+  filter(strain== "874")
+temp_labs_874 <- c("No heat stress", "Moderate heat stress", "High heat stress")
+names(temp_labs_874) <- c("18C", "22C", "25C")
+
+rel_ab_874 <-ggplot(avg_abundance_874, aes(x = n_conc, y = mean_abundance, fill = Family)) +
+  geom_bar(stat = "identity", color = "black", position = "stack", width = 0.9) +
+  facet_grid(strain~temp_C, labeller = labeller(temp_C =temp_labs_874)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        legend.title = element_text(size = 12),
+        axis.text.x=element_blank(), 
+        axis.ticks.x=element_blank(),
+        strip.text.x = element_text(size = 12),
+        strip.text.y = element_text(size = 12),
+        legend.text=element_text(size=12)) +
+  scale_x_discrete(labels= c("N limited", "N replete"))+
+  scale_fill_manual(values = family_colors)+
+  labs(fill = "Family")+
+  guides(fill = guide_legend(ncol = 1))
+
+rel_ab<-ggarrange(rel_ab_874, rel_ab_914, common.legend = TRUE,
+                  legend="right", nrow = 2)
+rel_ab<- annotate_figure(rel_ab,
+                left = text_grob("Relative Abundance (%)", size = 12, rot = 90))
+rel_ab
+
+ggsave(filename = "RA.png", rel_ab, width = 10, height = 7, dpi = 300)
+```
+
+**Permanova**
+
+```{R}
+# Data cleaning and fiddling
+abundances <- as.data.frame(otu_table(miah))
+abundances$Gene <- rownames(abundances)
+abundances <- as.data.frame(t(abundances))
+meta_data <- as.data.frame(sample_data(miah))
+merged_data <- merge(meta_data, abundances, by = "row.names")
+
+#Set up distance matrix (vegdist is Bray-Curtis)
+abundances_only <- merged_data[,-1:-13] 
+abundances_only <- abundances_only %>%
+  mutate_if(is.character, as.numeric)
+abundances_dist <- vegdist(abundances_only)
+
+set.seed(123)
+result <- adonis2(abundances_dist ~ temp_c, data = merged_data, permutations = 10000)
+result
+```
+
+**PCA**
+
+```{R}
+ps_nochloro <- subset_taxa(ps, Order != " o__Chloroplast" & Domain != "Unassigned")
+#ps_nochloro_RA<- transform_sample_counts(ps_nochloro, function(OTU) 100* OTU/sum(OTU))
+miah <- subset_samples(ps_nochloro, Project == "Miah, Nitrogen Exp")                                   
+miah = filter_taxa(miah, function(x) sum(x) > 1, TRUE)
+
+#Cleaning data and making temp_cond column
+sample_data_df <- as(sample_data(miah), "data.frame")
+sample_data_df <- sample_data_df %>%
+  mutate(
+    strain = as.integer(sub(",.*", "", Sample)),
+    temp = sub(".*, (.*?), .*", "\\1", Sample),
+    n_conc = sub(".*, .*?, (.*?), .*", "\\1", Sample),
+    temp_cond = case_when(
+      temp == "18C" ~ "No heat stress",
+      temp == "22C" ~ "Moderate heat stress",
+      temp %in% c("25C", "28C") ~ "High heat stress")
+  )
+
+sample_data_df$temp = as.factor(gsub("C", "", sample_data_df$temp))
+sample_data_df$n_conc = as.integer(gsub("%N", "", sample_data_df$n_conc))
+
+#Making fill and shape options for plotting
+temp_fill <- c(
+  "No heat stress" = "#008CF4",
+  "Moderate heat stress" = "#D6A400", 
+  "High heat stress" = "#BB0000"
+)
+sample_data_df$temp_cond <- factor(sample_data_df$temp_cond, levels = c("No heat stress", "Moderate heat stress", "High heat stress"))
+
+sample_data_df$shape_fill <- with(sample_data_df, 
+                                 ifelse(strain == 914 &n_conc == 100, "914 100%N",
+                                 ifelse(strain == 914 & n_conc == 10, "914 10%N",
+                                 ifelse(strain == 874 & n_conc == 100, "874 100%N",
+                                 ifelse(strain == 874 & n_conc == 10, "874 10%N", NA)))))
+
+shape_values <- c("914 100%N" = 16, "914 10%N" = 1, 
+                  "874 100%N" = 18, "874 10%N" = 5)
+
+sample_data_df$temp <- factor(sample_data_df$temp, levels = names(temp_fill))
+sample_data(miah) <- sample_data_df
+
+#Prepping data for MicroViz ordination plotting
+miah_pca <- tax_fix(miah)
+miah_pca <- phyloseq_validate(miah_pca, remove_undetected = TRUE)
+
+combined_family_pca <- miah_pca %>%
+  tax_transform("clr",rank = "Family") %>%
+  ord_calc(method = "PCA") %>%
+  ord_plot(shape = "shape_fill", color = "temp_cond", group = "strain", plot_taxa = 1:9, size = 4,stroke = 1, taxon_renamer = function(x) stringr::str_remove(x, "^ f__"), tax_vec_length = 0.75, tax_lab_style = tax_lab_style(
+      type = "text", max_angle = 90, size = 3,
+      check_overlap = TRUE
+    ))+ 
+  coord_fixed(ratio = 1, clip = "off", xlim = c(-4.5, 5.5))+
+  scale_shape_manual(values = shape_values, guide = guide_legend(title = "Strain - Nitrogen Condition"), labels = c("874 10%N" = "874 - N limited", "874 100%N" = "874 - N Repete", "914 10%N" = "914 - N limited", "914 100%N" = "914 - N Repete"))+
+  scale_color_manual(values = temp_fill, guide = guide_legend(title = "Temperature Condition"))+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+    plot.caption = element_blank(),
+    legend.text=element_text(size=12),
+    legend.title=element_text(size=12),
+    axis.title = element_text (size =14))
+combined_family_pca
+ggsave(filename = "combined_ASV_pca.png", combined_family_pca, width = 8, height = 6, dpi = 300)
+```
+
+```{R}
+# Subset for strain 914
+miah_914 <- subset_samples(miah, strain == 914)
+miah_914 <- tax_fix(miah_914)
+
+# Subset for strain 874
+miah_874 <- subset_samples(miah, strain == 874)
+miah_874 <- tax_fix(miah_874)
+
+# Validate the subsetted phyloseq objects
+miah_914 <- phyloseq_validate(miah_914, remove_undetected = TRUE)
+miah_874 <- phyloseq_validate(miah_874, remove_undetected = TRUE)
+
+# Perform PCA for strain 914
+family_914_pca <- miah_914 %>%
+  tax_transform("clr", rank = "Family") %>%
+  ord_calc(method = "PCA") %>%
+  ord_plot(
+    shape = "shape_fill",
+    color = "temp_cond",
+    group = "strain",
+    plot_taxa = 1:9,
+    size = 4, stroke =1,
+    taxon_renamer = function(x) stringr::str_remove(x, "^ f__"),
+    tax_vec_length = 0.75,
+    tax_lab_style = tax_lab_style(
+      type = "text",
+      max_angle = 90,
+      size = 3,
+      check_overlap = TRUE
+    )
+  ) +
+  coord_fixed(ratio = 1, clip = "off", xlim = c(-2, 3), ylim = c(-4,1.5)) +
+  scale_shape_manual(
+    values = shape_values,
+    guide = guide_legend(title = "Strain & Nitrogen"),
+    labels = c(
+      "914 10%N" = "914 N limited",
+      "914 100%N" = "914 N Replete"
+    )
+  ) +
+  scale_color_manual(values = temp_fill, guide = guide_legend(title = "Temperature")) +
+  ggtitle(label = "Strain 914")+
+  theme_bw() +
+  theme(
+    panel.grid = element_blank(),
+    plot.caption = element_blank()
+  )
+
+# Perform PCA for strain 874
+family_874_pca <- miah_874 %>%
+  tax_transform("clr", rank = "Family") %>%
+  ord_calc(method = "PCA") %>%
+  ord_plot(
+    shape = "shape_fill",
+    color = "temp_cond",
+    group = "strain",
+    plot_taxa = 1:9,
+    size = 4,
+    stroke = 1,
+    taxon_renamer = function(x) stringr::str_remove(x, "^ f__"),
+    tax_vec_length = 0.75,
+    tax_lab_style = tax_lab_style(
+      type = "text",
+      max_angle = 90,
+      size = 3,
+      check_overlap = TRUE
+    )
+  ) +
+  coord_fixed(ratio = 1, clip = "off", xlim = c(-2, 4.25)) +
+  scale_shape_manual(
+    values = shape_values,
+    guide = guide_legend(title = "Strain & Nitrogen"),
+    labels = c(
+      "874 10%N" = "874 N limited",
+      "874 100%N" = "874 N Replete"
+    )
+  ) +
+  scale_color_manual(values = temp_fill, guide = guide_legend(title = "Temperature")) +
+  ggtitle(label = "Strain 874")+
+  theme_bw() +
+  theme(
+    panel.grid = element_blank(),
+    plot.caption = element_blank()
+  )
+family_914_pca
+family_874_pca
+```
+
+ALL SAMPLE ASVs
+
+```{R}
+ps_nochloro <- subset_taxa(ps, Order != " o__Chloroplast" & Domain != "Unassigned")
+miah <- subset_samples(ps_nochloro, Project == "Miah, Nitrogen Exp")
+miah = filter_taxa(miah, function(x) sum(x) > 1, TRUE)
+
+#Adding condition column
+sample_data_df <- as(sample_data(miah), "data.frame")
+
+sample_data_df <- sample_data_df %>%
+  mutate(
+    strain = as.integer(sub(",.*", "", Sample)),
+    temp = sub(".*, (.*?), .*", "\\1", Sample),
+    n_conc = sub(".*, .*?, (.*?), .*", "\\1", Sample),
+    temp_cond = case_when(
+      temp == "18C" ~ "No heat stress",
+      temp == "22C" ~ "Moderate heat stress",
+      temp %in% c("25C", "28C") ~ "High heat stress")
+  )
+
+sample_data_df$temp = as.factor(gsub("C", "", sample_data_df$temp))
+sample_data_df$n_conc = as.integer(gsub("%N", "", sample_data_df$n_conc))
+sample_data_df$temp_cond <- factor(sample_data_df$temp_cond, 
+                                   levels = c("No heat stress", "Moderate heat stress", 
+                                              "High heat stress"))
+  
+sample_data_df <- sample_data(sample_data_df)
+sample_data(miah) <- sample_data_df
+```
+
+PCA at ASV-level for both strains
+```{R}
+#PCA
+library(factoextra)
+asv_matrix <- as(otu_table(miah), "matrix")
+pca_result <- prcomp(asv_matrix,center = TRUE, scale. = TRUE)
+summary(pca_result)
+
+pca_scores <- pca_result$rotation
+pca_scores_df <- as.data.frame(pca_scores)
+
+# Extract sample data
+sample_data_df <- as.data.frame(sample_data(miah))
+pca_scores_df <- cbind(pca_scores_df, sample_data_df)
+
+#Screeplot
+scree_data <- data.frame(
+  PC = 1:length(pca_result$sdev),
+  VarianceExplained = pca_result$sdev^2 / sum(pca_result$sdev^2)
+)
+
+ggplot(scree_data, aes(x = PC, y = VarianceExplained)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Principal Component", y = "Proportion of Variance Explained")
+
+#Coreelation
+res.var <- get_pca_var(pca_result)
+```
+
+Extra tree/ordination stuff within phyloseq
+```{R}
+library("ape")
+random_tree = rtree(ntaxa(miah), rooted=TRUE, tip.label=taxa_names(miah))
+miah_tree = merge_phyloseq(miah,random_tree)
+#plot_tree(miah_tree, color="Sample", label.tips="taxa_names", ladderize="left", plot.margin=0.3)
+ordu = ordinate(miah_tree, "PCoA", "unifrac", weighted=TRUE)
+plot_ordination(miah_tree, ordu)
+```
+
+```{R}
+#PCA 1/2
+variance_explained_percent <- 100 * (pca_result$sdev^2 / sum(pca_result$sdev^2))
+
+# Define colors and shapes
+temp_fill <- c("No heat stress" = "#008CF4",
+               "Moderate heat stress" = "#D6A400", 
+               "High heat stress" = "#BB0000")
+
+pca_scores_df$shape_fill <- with(pca_scores_df, 
+                                 ifelse(strain == 914 & n_conc == 100, "914 100%N",
+                                 ifelse(strain == 914 & n_conc == 10, "914 10%N",
+                                 ifelse(strain == 874 & n_conc == 100, "874 100%N",
+                                 ifelse(strain == 874 & n_conc == 10, "874 10%N", NA)))))
+
+# Define custom shapes and fill values
+shape_values <- c("914 100%N" = 16, "914 10%N" = 1, 
+                  "874 100%N" = 18, "874 10%N" = 5)
+
+# Extract unique temperature values to match with colors
+pca_scores_df$dynamic_fill <- with(pca_scores_df, 
+                                   ifelse(n_conc == 100, as.character(temp), NA))
+
+pca_plot <- ggplot(pca_scores_df, aes(x = PC1, y = PC2, shape = shape_fill, fill = dynamic_fill)) +
+  geom_point(aes(color = temp_cond), size = 4, stroke = 1) +
+  labs(x = paste0("PC1 [", round(variance_explained_percent[1], 1), "%]"),
+       y = paste0("PC2 [", round(variance_explained_percent[2], 1), "%]")) +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  scale_color_manual(values = temp_fill, guide = guide_legend(title = "Temperature Condition"))+
+  scale_shape_manual(values = shape_values, guide = guide_legend(title = "Strain - Nitrogen Condition"),
+                     labels = c("874 10%N" = "874 - N limited", "874 100%N" = "874 - N Repete", 
+                                "914 10%N" = "914 - N limited", "914 100%N" = "914 - N Repete"))+
+  scale_fill_manual(values = c(temp_fill), guide = "none")
+
+print(pca_plot)
+```
+
+PCA at ASV-level for 914
+```{R}
+#Subset 914
+miah_914 <- subset_samples(miah, strain == 914)
+
+#PCA
+asv_matrix <- as(otu_table(miah_914), "matrix")
+pca_result <- prcomp(asv_matrix,center = TRUE, scale. = TRUE)
+summary(pca_result)
+
+pca_scores <- pca_result$rotation
+pca_scores_df <- as.data.frame(pca_scores)
+
+# Extract sample data
+sample_data_df <- as.data.frame(sample_data(miah_914))
+pca_scores_df <- cbind(pca_scores_df, sample_data_df)
+
+#Screeplot
+scree_data <- data.frame(
+  PC = 1:length(pca_result$sdev),
+  VarianceExplained = pca_result$sdev^2 / sum(pca_result$sdev^2)
+)
+
+ggplot(scree_data, aes(x = PC, y = VarianceExplained)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Principal Component", y = "Proportion of Variance Explained")
+
+variance_explained_percent <- 100 * (pca_result$sdev^2 / sum(pca_result$sdev^2))
+
+#Shapes and colors
+temp_fill <- c("No heat stress" = "#008CF4",
+               "Moderate heat stress" = "#D6A400", 
+               "High heat stress" = "#BB0000")
+pca_scores_df$shape_fill <- with(pca_scores_df, 
+                                 ifelse(strain == 914 & n_conc == 100, "914 100%N",
+                                 ifelse(strain == 914 & n_conc == 10, "914 10%N", NA)))
+shape_values <- c("914 100%N" = 16, "914 10%N" = 1)
+pca_scores_df$dynamic_fill <- with(pca_scores_df, 
+                                   ifelse(n_conc == 100, as.character(temp), NA))
+
+#Plot
+pca_plot_914 <- ggplot(pca_scores_df, aes(x = PC1, y = PC2, shape = shape_fill, fill = dynamic_fill)) +
+  geom_point(aes(color = temp_cond), size = 4, stroke = 1) +
+  labs(x = paste0("PC1 [", round(variance_explained_percent[1], 1), "%]"),
+       y = paste0("PC2 [", round(variance_explained_percent[2], 1), "%]")) +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.title = element_text (size =14)) +
+  scale_color_manual(values = temp_fill, guide = guide_legend(title = "Temperature Condition"))+
+  scale_shape_manual(values = shape_values, guide = guide_legend(title = "Nitrogen Condition"),
+                     labels = c("914 10%N" = "N limited", "914 100%N" = "N Repete"))+
+  scale_fill_manual(values = c(temp_fill), guide = "none")
+print(pca_plot_914)
+ggsave(filename = "914_ASV_pca.png", pca_plot_914, width = 6, height = 3.75, dpi = 300)
+```
+
+PCA at ASV level for 874
+```{R}
+#Subset 914
+miah_874 <- subset_samples(miah, strain == 874)
+
+#PCA
+asv_matrix <- as(otu_table(miah_874), "matrix")
+pca_result <- prcomp(asv_matrix,center = TRUE, scale. = TRUE)
+summary(pca_result)
+
+pca_scores <- pca_result$rotation
+pca_scores_df <- as.data.frame(pca_scores)
+
+# Extract sample data
+sample_data_df <- as.data.frame(sample_data(miah_874))
+pca_scores_df <- cbind(pca_scores_df, sample_data_df)
+
+#Screeplot
+scree_data <- data.frame(
+  PC = 1:length(pca_result$sdev),
+  VarianceExplained = pca_result$sdev^2 / sum(pca_result$sdev^2)
+)
+
+ggplot(scree_data, aes(x = PC, y = VarianceExplained)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Principal Component", y = "Proportion of Variance Explained")
+
+variance_explained_percent <- 100 * (pca_result$sdev^2 / sum(pca_result$sdev^2))
+
+#Shapes and colors
+temp_fill <- c("No heat stress" = "#008CF4",
+               "Moderate heat stress" = "#D6A400", 
+               "High heat stress" = "#BB0000")
+pca_scores_df$shape_fill <- with(pca_scores_df, 
+                                 ifelse(strain == 874 & n_conc == 100, "874 100%N",
+                                 ifelse(strain == 874 & n_conc == 10, "874 10%N", NA)))
+shape_values <- c("874 100%N" = 18, "874 10%N" = 5)
+pca_scores_df$dynamic_fill <- with(pca_scores_df, 
+                                   ifelse(n_conc == 100, as.character(temp), NA))
+
+#Plot
+pca_plot_874 <- ggplot(pca_scores_df, aes(x = PC1, y = PC2, shape = shape_fill, fill = dynamic_fill)) +
+  geom_point(aes(color = temp_cond), size = 4, stroke = 1) +
+  labs(x = paste0("PC1 [", round(variance_explained_percent[1], 1), "%]"),
+       y = paste0("PC2 [", round(variance_explained_percent[2], 1), "%]")) +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.title = element_text (size =14)) +
+  scale_color_manual(values = temp_fill, guide = guide_legend(title = "Temperature Condition"))+
+  scale_shape_manual(values = shape_values, guide = guide_legend(title = "Nitrogen Condition"),
+                     labels = c("874 10%N" = "N limited", "874 100%N" = "N Repete"))+
+  scale_fill_manual(values = c(temp_fill), guide = "none")
+print(pca_plot_874)
+ggsave(filename = "874_ASV_pca.png", pca_plot_874, width = 6, height = 3.75, dpi = 300)
+```
+**Osmolytes**
+
+```{R}
+osmo_raw<- read.csv("Ehux_Rdataload_v2.csv", header = TRUE)
+
+osmo_per_cell <- osmo_raw %>%
+  mutate(number_of_cells = Cell.concentration..cell.mL. * Volume.Filtered..mL.) %>%
+  mutate(across(8:22, ~ . / number_of_cells))  # Calculate chemical per cell
+
+osmo_per_cell[, 8:22] <- lapply(osmo_per_cell[, 8:22], function(x) as.numeric(as.character(x)))
+
+osmolyte_columns <- c("GBT", "Ectoine", "Proline", "DMSP", "Glutamate", 
+                       "Glutamine", "Sarcosine", "Trigonelline", "Homarine", 
+                       "Gonyol", "Choline", "Carnitine", "Mannitol.Sorbitol", 
+                       "Trehalose", "Citrulline")
+
+# Group by treatment conditions and calculate mean for each osmolyte
+osmolyte_data <- osmo_per_cell %>%
+  group_by(Temperature.treatment, Nitrogen.treatment, Strain) %>%
+  summarise(across(all_of(osmolyte_columns), 
+                   list(mean = ~ mean(.x, na.rm = TRUE), 
+                        sd = ~ sd(.x, na.rm = TRUE)), 
+                   .names = "{col}_{fn}"))
+
+osmolyte_long <- osmolyte_data %>%
+  pivot_longer(cols = 4:33, 
+               names_to = c("Osmolyte", ".value"),
+               names_sep = "_")
+osmolyte_long <- osmo_per_cell %>%
+  pivot_longer(cols = 8:22)
+osmolyte_long$Strain <- as.factor(osmolyte_long$Strain)
+osmolyte_long$Temperature.treatment <- as.factor(osmolyte_long$Temperature.treatment)
+```
+
+```{r}
+osmo_plot_874 <- ggplot(subset(osmolyte_long, Strain == "874"), 
+                        aes(x = interaction(Nitrogen.treatment, Temperature.treatment), 
+                            y = value, fill = interaction(Nitrogen.treatment, Temperature.treatment),
+                            color = Temperature.treatment)) +
+  geom_boxplot(outlier.shape = NA, position = position_dodge(0.8), alpha = 0.7) +
+  facet_wrap(~ name, scales = "free_y") +
+  labs(x = "Temperature Condition", y = "Concentration (ng cell⁻¹)", fill = "Temperature Condition", 
+       title = "874") +
+  scale_fill_manual(values = c("10%.18" = "white", 
+                                 "100%.18" = "#008CF4",
+                                 "10%.22" = "white", 
+                                 "100%.22" = "#D6A400"),
+                        labels = c("10%.18" = "N limited", "10%.22" = "N limited", 
+                                   "100%.18" = "N replete", "100%.22" = "N replete"))+
+  scale_color_manual(values = c("18" = "#008CF4", 
+                                "22" = "#D6A400")) +
+  theme_bw() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        strip.text = element_text(),
+        panel.grid = element_blank(),
+        legend.position = "none")
+
+osmo_plot_914 <- ggplot(subset(osmolyte_long, Strain == "914"), 
+                        aes(x =  interaction(Nitrogen.treatment, Temperature.treatment), 
+                            y = value, fill =  interaction(Nitrogen.treatment, Temperature.treatment),
+                            color = Temperature.treatment)) +
+  geom_boxplot(outlier.shape = NA, position = position_dodge(0.8), alpha = 0.7) + 
+  facet_wrap(~ name, scales = "free_y") + 
+  labs(x = "Temperature Condition", y = "Concentration (ng cell⁻¹)", fill = "Temperature Condition", 
+       title = "914") +
+  scale_fill_manual(values = c("10%.18" = "white", 
+                                 "100%.18" = "#008CF4",
+                                 "10%.22" = "white", 
+                                 "100%.22" = "#D6A400",
+                               "10%.28" = "white", 
+                                 "100%.28" = "#BB0000"),
+                        labels = c("10%.18" = "N limited", "10%.22" = "N limited", 
+                                   "100%.18" = "N replete", "100%.22" = "N replete",
+                                   "100%.28" = "N replete", "10%.28" = "N limited"))+
+  scale_color_manual(values = c("18" = "#008CF4", 
+                                "22" = "#D6A400", 
+                                "28" = "#BB0000")) +
+  theme_bw() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        strip.text = element_text(),
+        panel.grid = element_blank(),
+        legend.position = "none")
+
+osmo_combined_plot <- osmo_plot_874 + osmo_plot_914 + plot_layout(guides = "collect") & 
+  theme(legend.position = "bottom") 
+
+osmo_combined_plot
+
+ggsave(filename = "osmo_conc.png", osmo_combined_plot, width = 14, height = 7, dpi = 300)
+```
+
+```{R}
+osmo_per_cell$Temperature.treatment <- paste0(osmo_per_cell$Temperature.treatment, "C")
+osmo_per_cell$Nitrogen.treatment <- paste0(osmo_per_cell$Nitrogen.treatment, "N")
+osmo_per_cell$Sample <- paste(osmo_per_cell$Strain, osmo_per_cell$Temperature.treatment, osmo_per_cell$Nitrogen.treatment, osmo_per_cell$Replicate, sep = ", ")
+
+osmo_per_cell <- osmo_per_cell %>%
+  left_join(meta %>% select(Sample, SampleID), by = "Sample")
+rownames(osmo_per_cell) <- osmo_per_cell$SampleID
+osmo_trimmed <- osmo_per_cell %>% select(-c(Temperature.treatment, Nitrogen.treatment, Strain, Replicate, Sample, SampleID))
+
+meta_osmo <- merge(meta, osmo_trimmed, by = "row.names", all.x = TRUE)
+rownames(meta_osmo) <- meta_osmo$Row.names
+meta_osmo$Row.names <- NULL
+
+META_OSMO <- sample_data(meta_osmo)
+
+ps<-qza_to_phyloseq(features="table.qza") #resetting ps variable
+ps <- phyloseq(otu_table(ps), tax_table(as.matrix(TAX))) #merge with TAX table from earlier steps
+ps_osmo = merge_phyloseq(ps,sample_data(META_OSMO)) 
+
+ps_osmo_nochloro <- subset_taxa(ps_osmo, Order != " o__Chloroplast" & Domain != "Unassigned")
+```
+
+```{R}
+miah_osmo <- subset_samples(ps_osmo_nochloro, Project == "Miah, Nitrogen Exp")
+miah_osmo = filter_taxa(miah_osmo, function(x) sum(x) > 1, TRUE)
+
+#Cleaning data and making temp_cond column
+sample_data_df <- as(sample_data(miah_osmo), "data.frame")
+sample_data_df <- sample_data_df %>%
+  mutate(
+    strain = as.integer(sub(",.*", "", Sample)),
+    temp = sub(".*, (.*?), .*", "\\1", Sample),
+    n_conc = sub(".*, .*?, (.*?), .*", "\\1", Sample),
+    temp_cond = case_when(
+      temp == "18C" ~ "No heat stress",
+      temp == "22C" ~ "Moderate heat stress",
+      temp %in% c("25C", "28C") ~ "High heat stress")
+  )
+
+sample_data_df$temp = as.factor(gsub("C", "", sample_data_df$temp))
+sample_data_df$n_conc = as.integer(gsub("%N", "", sample_data_df$n_conc))
+
+#Making fill and shape options for plotting
+temp_fill <- c(
+  "No heat stress" = "#008CF4",
+  "Moderate heat stress" = "#D6A400", 
+  "High heat stress" = "#BB0000"
+)
+sample_data_df$temp_cond <- factor(sample_data_df$temp_cond, levels = c("No heat stress", "Moderate heat stress", "High heat stress"))
+
+sample_data_df$shape_fill <- with(sample_data_df, 
+                                 ifelse(strain == 914 &n_conc == 100, "914 100%N",
+                                 ifelse(strain == 914 & n_conc == 10, "914 10%N",
+                                 ifelse(strain == 874 & n_conc == 100, "874 100%N",
+                                 ifelse(strain == 874 & n_conc == 10, "874 10%N", NA)))))
+
+shape_values <- c("914 100%N" = 16, "914 10%N" = 1, 
+                  "874 100%N" = 18, "874 10%N" = 5)
+
+sample_data_df$temp <- factor(sample_data_df$temp, levels = names(temp_fill))
+sample_data(miah_osmo) <- sample_data_df
+
+#Prepping data for MicroViz ordination plotting
+miah_osmo_rda <- tax_fix(miah_osmo)
+miah_osmo_rda <- miah_osmo_rda %>% tax_fix(unknowns = c("Other"))
+miah_osmo_rda <- phyloseq_validate(miah_osmo_rda, remove_undetected = TRUE)
+
+osmo_rda <- miah_osmo_rda %>%
+  tax_transform("clr",rank = "Family") %>%
+  ord_calc(method= "RDA", 
+           constraints = c("GBT", "Ectoine", "Proline", "DMSP", "Glutamate", "Glutamine", "Sarcosine",
+                           "Gonyol", "Choline", "Carnitine", "Mannitol.Sorbitol", "Trehalose", 
+                           "Citrulline"),
+    scale_cc = FALSE) %>%
+  ord_plot(shape = "shape_fill", color = "temp_cond", group = "strain", plot_taxa = 1:9, 
+           size = 4,stroke = 1, taxon_renamer = function(x) stringr::str_remove(x, "^ f__"),
+           tax_vec_length = 0.75, tax_lab_style = tax_lab_style(type = "text", max_angle = 90, 
+                                                                size = 3,check_overlap = TRUE),
+           constraint_vec_style = vec_constraint(colour = "#3b3b3b", alpha = 0.5), 
+           constraint_lab_style = constraint_lab_style(colour = "#3b3b3b", size = 3))+
+  coord_fixed(ratio = 1, clip = "off", xlim = c(-4.5, 5.5))+
+  scale_shape_manual(values = shape_values, 
+                     guide = guide_legend(title = "Strain - Nitrogen Condition"), 
+                     labels = c("874 10%N" = "874 - N limited", "874 100%N" = "874 - N Repete", 
+                                "914 10%N" = "914 - N limited", "914 100%N" = "914 - N Repete"))+
+  scale_color_manual(values = temp_fill, guide = guide_legend(title = "Temperature Condition"))+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+    plot.caption = element_blank(),
+    legend.text=element_text(size=12),
+    legend.title=element_text(size=12),
+    legend.position = "bottom",
+    axis.title = element_text (size =14))
+osmo_rda 
+ggsave(filename = "osmo_rda.png", osmo_rda, width = 17, height = 5, dpi = 300)
+```
+874
+```{R}
+miah_osmo_rda_874 <- subset_samples(miah_osmo_rda, strain == 874)
+osmo_rda_874 <- miah_osmo_rda_874 %>%
+  tax_transform("clr",rank = "Family") %>%
+  ord_calc(method= "RDA", 
+           constraints = c("GBT", "Ectoine", "Proline", "DMSP", "Glutamate", "Glutamine", "Sarcosine",
+                           "Gonyol", "Choline", "Carnitine", "Mannitol.Sorbitol"#, "Trehalose", 
+                           #"Citrulline"
+                           ),scale_cc = FALSE) %>%
+  ord_plot(shape = "shape_fill", color = "temp_cond", group = "strain", plot_taxa = 1:8, 
+           size = 4,stroke = 1, taxon_renamer = function(x) stringr::str_remove(x, "^ f__"), 
+           tax_vec_length = 0.75, tax_lab_style = tax_lab_style(type = "text", max_angle = 90, 
+                                                                size = 3,check_overlap = TRUE),
+           constraint_vec_style = vec_constraint(colour = "#3b3b3b", alpha = 0.5), 
+           constraint_lab_style = constraint_lab_style(colour = "#3b3b3b", size = 3))+ 
+  coord_fixed(ratio = 1, clip = "off", xlim = c(-2.5, 2.1), ylim = c(-2.5,2.1))+
+  scale_shape_manual(values = shape_values, 
+                     guide = guide_legend(title = "Strain - Nitrogen Condition"), 
+                     labels = c("874 10%N" = "874 - N limited", "874 100%N" = "874 - N Repete"))+
+  scale_color_manual(values = temp_fill, guide = guide_legend(title = "Temperature Condition"))+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+    plot.caption = element_blank(),
+    legend.text=element_text(size=12),
+    legend.title=element_text(size=12),
+    axis.title = element_text (size =14))
+osmo_rda_874
+ggsave(filename = "osmo_rda_874.png", osmo_rda_874, width = 8, height = 5, dpi = 300)
+```
+914
+```{R}
+miah_osmo_rda_914 <- subset_samples(miah_osmo_rda, strain == 914)
+osmo_rda_914 <- miah_osmo_rda_914 %>%
+  tax_transform("clr",rank = "Family") %>%
+  ord_calc(method= "RDA", 
+           constraints = c("GBT", "Ectoine", "Proline", "DMSP", "Glutamate", "Glutamine", "Sarcosine",
+                           "Gonyol", "Choline", "Carnitine", "Mannitol.Sorbitol", "Trehalose", 
+                           "Citrulline"),scale_cc = FALSE) %>%
+  ord_plot(shape = "shape_fill", color = "temp_cond", group = "strain", plot_taxa = 1:8, 
+           size = 4,stroke = 1, taxon_renamer = function(x) stringr::str_remove(x, "^ f__"), 
+           tax_vec_length = 0.75, tax_lab_style = tax_lab_style(type = "text", max_angle = 90, 
+                                                                size = 3,check_overlap = TRUE),
+           constraint_vec_style = vec_constraint(colour = "#3b3b3b", alpha = 0.5), 
+           constraint_lab_style = constraint_lab_style(colour = "#3b3b3b", size = 3))+ 
+  coord_fixed(ratio = 1, clip = "off", xlim = c(-2, 2.4), ylim = c(-1,2.5))+
+  scale_shape_manual(values = shape_values, 
+                     guide = guide_legend(title = "Strain - Nitrogen Condition"), 
+                     labels = c("914 10%N" = "914 - N limited", "914 100%N" = "914 - N Repete"))+
+  scale_color_manual(values = temp_fill, guide = guide_legend(title = "Temperature Condition"))+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+    plot.caption = element_blank(),
+    legend.text=element_text(size=12),
+    legend.title=element_text(size=12),
+    axis.title = element_text (size =14))
+osmo_rda_914
+ggsave(filename = "osmo_rda_914.png", osmo_rda_914, width = 8, height = 5, dpi = 300)
+```

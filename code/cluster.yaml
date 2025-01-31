@@ -1,0 +1,74 @@
+__default__: #These are the default values! If a rule doesn't exist these values will be used.
+    system: 'slurm' #check if system is defined below
+    account: miah.manning #required
+    time: 120 # minutes
+    mem: 10 # GB
+    threads: 8 # Number of Threads
+    queue: compute # QUEUE USED
+    nodes: 1 # NUMBER OF NODES
+    command_options:
+        slurm:
+            command: "sbatch --parsable --qos=medmem"
+            key_mapping:
+            name: "--job-name={}"
+            threads: "-n {}"
+            mem: "--mem={}g"
+            account: "--account={}"
+            queue: "--partition={}"
+            time: "--time={}"
+            nodes: "-N {}"      # ntasks: 24
+    latency-wait: 120
+
+trim_galore:
+    queue: compute
+    threads: 4
+    mem: 10
+    time: 360
+
+rnaspades_multi:
+    queue: medmem
+    threads: 10
+    mem: 300
+    time: 5760
+
+salmon_index:
+    queue: scavenger
+    threads: 8
+    mem: 10
+    time: 720
+
+salmon_quant:
+    queue: medmem
+    threads: 12
+    mem: 80
+    time: 1440
+
+salmon_merge_914:
+    queue: scavenger
+    threads: 4
+    mem: 10
+    time: 80
+
+salmon_merge_874:
+    queue: scavenger
+    threads: 4
+    mem: 10
+    time: 80
+
+salmon_merge:
+    queue: scavenger
+    threads: 4
+    mem: 10
+    time: 80
+
+eukulele_multi_nt:
+    queue: medmem
+    threads: 4
+    mem: 80
+    time: 120
+
+mmseq2:
+    queue: scavenger
+    threads: 4
+    mem: 20
+    time: 40

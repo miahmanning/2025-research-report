@@ -1,0 +1,215 @@
+---
+title: "process-FCM-data"
+output: html_document
+date: "2024-01-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Extract cell counts and other parameters from flow cytometry data
+
+```{r dependencies}
+pacman::p_load(flowCore,ggplot2,reshape2,dplyr,ggridges,data.table,patchwork)
+```
+
+## Reading in data
+
+Plate wells file contains the correspondence between the FCM wells and the experiment samples.
+
+```{r read_914, echo=FALSE}
+setwd("/Users/akq/Documents/Graduate School/Papers/2024-N-Temp-Colim/nitrate-temp-colim/code")
+well_spec = read.table("../data/914/fcm_914/well-data.tsv", row.names=NULL, header=TRUE)
+well_spec$n_conc = as.character(well_spec$n_conc)
+well_spec$strain = as.character(well_spec$strain)
+well_spec_refeed = well_spec
+top_level = "../data/914/fcm_914"
+top_level_refeed = "../data/914/fcm_914/914_spike_fcm"
+fcm_all = data.frame()
+for (date in c("2023-10-12","2023-10-13","2023-10-14",
+               "2023-10-15","2023-10-16","2023-10-17",
+               "2023-10-18","2023-10-19","2023-10-20",
+               "2023-10-21")) {
+    refeed=FALSE
+    if (date %in% c("2023-10-19")) {
+        well_spec_refeed=data.frame("Well"=c("A10","A11","A12",
+                                      "B10","B11","B12"),
+                             "strain"=c("914","914","914","914","914","914"),
+                             "n_conc"=c("Unamended-10%","Unamended-10%","Unamended-10%",
+                                       "Spiked-100%","Spiked-100%","Spiked-100%"),
+                             "temp_c"=c(18,18,18,18,18,18),
+                             "rep"=c("A","B","C","A","B","C"))
+        refeed=TRUE
+    } else if (date %in% c("2023-10-21")) {
+        
+        well_spec_refeed=data.frame("Well"=c("C01","C02","C03",
+                                      "D01","D02","D03","C04","C05","C06",
+                                      "D04","D05","B06","C07","C08",
+                                      "D07","D08"),
+                             "strain"=c("914","914","914","914","914","914",
+                                        "914","914","914","914","914","914",
+                                        "914","914","914","914"),
+                             "n_conc"=c("Unamended-10%","Unamended-10%","Unamended-10%",
+                                       "Spiked-100%","Spiked-100%","Spiked-100%",
+                                       "Unamended-10%","Unamended-10%","Unamended-10%",
+                                       "Spiked-100%","Spiked-100%","Spiked-100%",
+                                       "Unamended-10%","Unamended-10%",
+                                       "Spiked-100%","Spiked-100%"),
+                             "temp_c"=c(18,18,18,18,18,18,
+                                      22,22,22,22,22,22,
+                                      28,28,28,28),
+                             "rep"=c("A","B","C","A","B","C",
+                                     "A","B","C","A","B","C",
+                                     "A","B","A","B"))
+        refeed=TRUE
+    } else if (date %in% c("2023-10-20")) {
+        well_spec_refeed=data.frame("Well"=c("A01","A02","A03",
+                                      "B01","B02","B03","A04","A05","A06",
+                                      "B04","B05","B06","A07","A08",
+                                      "B07","B08"),
+                             "strain"=c("914","914","914","914","914","914",
+                                        "914","914","914","914","914","914",
+                                        "914","914","914","914"),
+                             "n_conc"=c("Unamended-10%","Unamended-10%","Unamended-10%",
+                                       "Spiked-100%","Spiked-100%","Spiked-100%",
+                                       "Unamended-10%","Unamended-10%","Unamended-10%",
+                                       "Spiked-100%","Spiked-100%","Spiked-100%",
+                                       "Unamended-10%","Unamended-10%",
+                                       "Spiked-100%","Spiked-100%"),
+                             "temp_c"=c(18,18,18,18,18,18,
+                                      22,22,22,22,22,22,
+                                      28,28,28,28),
+                             "rep"=c("A","B","C","A","B","C",
+                                     "A","B","C","A","B","C",
+                                     "A","B","A","B"))
+        refeed=TRUE
+    }
+    if (!grepl("csv",date) & !grepl("ipynb",date) & !grepl("maintenance",date)) {
+        fcs_dir = file.path(top_level,date)
+        for (curr_well in list.files(fcs_dir)) {
+            curr_well_name = unlist(strsplit(curr_well, "\\."))[1]
+            if (length(which(grepl(curr_well_name, well_spec$Well))) > 0) {
+                fcm = read.FCS(file.path(fcs_dir,curr_well),emptyValue = FALSE,
+                       alter.names=TRUE)
+                total_time = difftime(as.POSIXct(as.character(fcm@description["$ETIM"]),
+                                                 format="%H:%M:%OS"),
+                                      as.POSIXct(as.character(fcm@description["$BTIM"]),
+                                                 format="%H:%M:%OS"),
+                                      units="mins")
+                fcm_df = as.data.frame(exprs(fcm))
+                fcm_df$Date = date
+                fcm_df$Well = curr_well_name
+                fcm_df$Time = total_time
+                fcm_df = fcm_df %>% dplyr::left_join(well_spec, by= "Well")
+                fcm_all = fcm_all %>% bind_rows(fcm_df %>% dplyr::mutate(Time=as.numeric(Time)))
+            }
+        }
+        
+        if (refeed) {
+          fcs_dir = file.path(top_level_refeed,date)
+          for (curr_well in list.files(fcs_dir)) {
+            curr_well_name = unlist(strsplit(curr_well, "\\."))[1]
+            if (length(which(grepl(curr_well_name, well_spec_refeed$Well))) > 0) {
+              fcm = read.FCS(file.path(fcs_dir,curr_well),emptyValue = FALSE,
+                     alter.names=TRUE)
+              total_time = difftime(as.POSIXct(as.character(fcm@description["$ETIM"]),
+                                               format="%H:%M:%OS"),
+                                    as.POSIXct(as.character(fcm@description["$BTIM"]),
+                                               format="%H:%M:%OS"),
+                                    units="mins")
+              fcm_df = as.data.frame(exprs(fcm))
+              fcm_df$Date = date
+              fcm_df$Well = curr_well_name
+              fcm_df$Time = total_time
+              fcm_df = fcm_df %>% dplyr::left_join(well_spec_refeed, by= "Well")
+              fcm_all = fcm_all %>% bind_rows(fcm_df %>% dplyr::mutate(Time=as.numeric(Time)))
+            }
+          }
+        }
+    }
+}
+```
+
+Write out the concentration data for us to use in the ROS script.
+
+```{r write_out_conc}
+
+conc_cell=fcm_all %>%
+    dplyr::mutate(logFSC = log10(FSC.H), logFL3 = log10(FL3.H)) %>%
+    dplyr::filter((logFSC > 4) & (logFL3 > 5.5)) %>%
+    dplyr::group_by(Time, Date, Well, strain, n_conc, temp_c, rep) %>%
+    dplyr::tally() %>%
+    dplyr::mutate(ConcCellmL = n / 35 / as.numeric(Time) * 10^3 / 1)
+
+write.csv(conc_cell,"../data/914/914_all_conc.csv")
+```
+
+
+
+```{r read_874, echo=FALSE}
+setwd("/Users/akq/Documents/Graduate School/Papers/2024-N-Temp-Colim/nitrate-temp-colim/code")
+well_spec = read.table("../data/874/fcm_874/well-data.tsv", row.names=NULL, header=TRUE)
+top_level = "../data/914/fcm_874"
+fcm_all = data.frame()
+for (date in c("2023-10-12","2023-10-13","2023-10-14",
+               "2023-10-15","2023-10-16","2023-10-17",
+               "2023-10-18","2023-10-19","2023-10-20",
+               "2023-10-21")) {
+    if (!grepl("csv",date) & !grepl("ipynb",date) & !grepl("maintenance",date)) {
+        fcs_dir = file.path(top_level,date)
+        for (curr_well in list.files(fcs_dir)) {
+            curr_well_name = unlist(strsplit(curr_well, "\\."))[1]
+            if (length(which(grepl(curr_well_name, well_spec$Well))) > 0) {
+                fcm = read.FCS(file.path(fcs_dir,curr_well),emptyValue = FALSE,
+                       alter.names=TRUE)
+                total_time = difftime(as.POSIXct(as.character(fcm@description["$ETIM"]),
+                                                 format="%H:%M:%OS"),
+                                      as.POSIXct(as.character(fcm@description["$BTIM"]),
+                                                 format="%H:%M:%OS"),
+                                      units="mins")
+                fcm_df = as.data.frame(exprs(fcm))
+                fcm_df$Date = date
+                fcm_df$Well = curr_well_name
+                fcm_df$Time = total_time
+                fcm_df = fcm_df %>% dplyr::left_join(well_spec, by= "Well")
+                fcm_all = fcm_all %>% bind_rows(fcm_df %>% dplyr::mutate(Time=as.numeric(Time)))
+            }
+        }
+    }
+}
+```
+
+Now that we have all the FCM data read in, we can get our cell concentrations and read those out for normalizing the ROS data.
+
+```{r plot_conc}
+conc_cell=fcm_all %>%
+    dplyr::mutate(logFSC = log10(FSC.H), logFL3 = log10(FL3.H)) %>%
+    dplyr::filter((logFSC > 4) & (logFL3 > 5.5)) %>%
+    dplyr::group_by(Time, Date, Well, strain, n_conc, temp_c, rep) %>%
+    dplyr::tally() %>%
+    dplyr::mutate(ConcCellmL = n / 35 / as.numeric(Time) * 10^3 / 1)
+
+ggplot(conc_cell) +
+    geom_point(aes(x = as.Date(Date,format="%Y-%m-%d"), 
+                   fill = factor(n_conc), y=ConcCellmL),pch=21)+
+    geom_line(aes(x = as.Date(Date,format="%Y-%m-%d"), 
+                  y = ConcCellmL, col = factor(n_conc), 
+                  group=paste0(n_conc,temp_c,strain,rep))) +
+    theme_bw(base_size=10) + ylab("Concentration (cell/mL)") + xlab("Date") + 
+    facet_wrap(~temp_c,nrow=2)
+```
+
+```{r size}
+ggplot(fcm_all %>% 
+       dplyr::mutate(logFSC = log10(FSC.H), logFL3 = log10(FL3.H)) %>%
+       dplyr::filter((logFSC > 4) & (logFL3 > 5.5)) %>%
+       dplyr::group_by(Date,strain,n_conc,temp_c,Well) %>% 
+       dplyr::summarize(meanFSC=mean(log10(FSC.H))) %>%
+       dplyr::left_join(conc_cell)) +
+    geom_point(aes(x = as.Date(Date,format="%Y-%m-%d"), 
+                   y = meanFSC, fill = factor(n_conc), size=ConcCellmL),pch=21)+
+    geom_line(aes(x = as.Date(Date,format="%Y-%m-%d"), 
+                   y = meanFSC, col = factor(n_conc), group=paste0(n_conc,temp_c,strain,rep))) + ylim(c(5.7,6.4)) + theme_bw(base_size=12) + ylab("cell size proxy") + xlab("Date")
+```
+

@@ -1,0 +1,214 @@
+import os
+
+# Variables
+PARENT_DIR = "/vortexfs1/omics/alexander/mmanning/2024-nitrogen-ehux-transcriptomics"
+RNA_DIR = os.path.join(PARENT_DIR, "rna")
+FILE_NAMES = glob_wildcards(os.path.join(RNA_DIR, "{sample}_L003_R{read}_001.fastq.gz"))
+SAMPLE_NAMES = sorted(set(FILE_NAMES.sample))
+FASTQC_FORWARD = expand("outputs/trimqc/{sample}_L003_R1_001_val_1_fastqc.zip", sample=SAMPLE_NAMES)
+FASTQC_REVERSE = expand("outputs/trimqc/{sample}_L003_R2_001_val_2_fastqc.zip", sample=SAMPLE_NAMES)
+TRIMMED_FORWARD = expand("outputs/trimqc/{sample}_L003_R1_001_val_1.fq.gz", sample=SAMPLE_NAMES)
+TRIMMED_REVERSE = expand("outputs/trimqc/{sample}_L003_R2_001_val_2.fq.gz", sample=SAMPLE_NAMES)
+assembly_group = ["914","874"]
+RNASPADES = expand("outputs/rnaspades_multi_{assembly_group}/transcripts.fasta", assembly_group=assembly_group)
+SALMON_INDEX = expand("outputs/salmon_index_{assembly_group}", assembly_group=assembly_group)
+SAMPLES_914 = ["MM{:03d}".format(i) for i in range(1, 18)]
+SAMPLES_874 = ["MM{:03d}".format(i) for i in range(18, 36)]
+INDEX = {
+    **{sample: os.path.join("outputs", "salmon_index_914") for sample in SAMPLES_914},
+    **{sample: os.path.join("outputs", "salmon_index_874") for sample in SAMPLES_874},
+}
+SALMON_QUANT = expand("outputs/quant/{sample}", sample=SAMPLES_914 +SAMPLES_874)
+SALMON_MERGE_914 = expand("outputs/quant_merge/914/merged.sf")
+SALMON_MERGE_874 = expand("outputs/quant_merge/874/merged.sf")
+EUKULELE_MULTI_NT = expand("outputs/EUKulele_multi_nt/taxonomy_estimation/{assembly_group}-estimated-taxonomy.out",assembly_group=assembly_group)
+CLEANED_FASTA=os.path.join("outputs","bact_removed","cleaned.fasta")                                                                      
+BACT_FASTA=os.path.join("outputs","bact_removed","bacteria.fasta")                                                                        
+EUK_SEQS=temp(os.path.join("outputs","bact_removed","list_of_euk_sequences.txt"))                                                          
+BACT_SEQS=temp(os.path.join("outputs","bact_removed","list_of_bact_sequences.txt"))                                                       
+ALL_FASTA=temp(os.path.join("outputs","bact_removed","all_assemblies.fasta"))
+MMSEQ2="outputs/mmseq2/DB_clu.tsv"
+
+# Functions
+def get_coassembly(assembly_group):
+    if assembly_group == "914":
+        return "coassembly_file914.yaml"
+    elif assembly_group == "874":
+        return "coassembly_file874.yaml"
+def get_sample_name(wildcards):
+    return wildcards.sample.split('/')[0]
+def get_reads(wildcards):
+    sample = get_sample_name(wildcards)
+    return (
+        os.path.join("outputs", "trimqc", f"{sample}_L003_R1_001_val_1.fq.gz"),
+        os.path.join("outputs", "trimqc", f"{sample}_L003_R2_001_val_2.fq.gz"),)
+
+rule all:
+    input:
+	#FASTQC_FORWARD,
+        #FASTQC_REVERSE,
+        #TRIMMED_FORWARD,
+        #TRIMMED_REVERSE,
+        #RNASPADES,
+        SALMON_INDEX,
+        SALMON_QUANT,
+        #SALMON_MERGE_914,
+        #SALMON_MERGE_874,
+        #EUKULELE_MULTI_NT,
+        #CLEANED_FASTA,
+        #BACT_FASTA,
+        MMSEQ2
+
+rule trim_galore:
+    input:
+        raw_forward = os.path.join(RNA_DIR, "{sample}_L003_R1_001.fastq.gz"),
+        raw_reverse = os.path.join(RNA_DIR, "{sample}_L003_R2_001.fastq.gz")
+    output:
+        fastqc_forward = "outputs/trimqc/{sample}_L003_R1_001_val_1_fastqc.zip",
+        trimmed_forward = "outputs/trimqc/{sample}_L003_R1_001_val_1.fq.gz",
+        fastqc_reverse = "outputs/trimqc/{sample}_L003_R2_001_val_2_fastqc.zip",
+        trimmed_reverse = "outputs/trimqc/{sample}_L003_R2_001_val_2.fq.gz"
+    conda: PARENT_DIR + "/env/rna.yaml"
+    shell:
+        """
+        mkdir -p outputs/trimqc # Make output directory
+        trim_galore -q 20 --phred33 --illumina --length 20 --stringency 1 --fastqc --paired {input.raw_forward} {input.raw_reverse} -o outputs/trimqc
+        """
+rule rnaspades_multi:
+    input:
+        left = TRIMMED_FORWARD,
+        right = TRIMMED_REVERSE
+    output:
+        os.path.join("outputs", "rnaspades_multi_{assembly_group}", "transcripts.fasta")
+    params:
+        outdir = os.path.join("outputs", "rnaspades_multi_{assembly_group}"),
+        coassembly_file = lambda filename: get_coassembly(filename.assembly_group)
+    log:
+        err = os.path.join("logs","rnaspades","outputlog_{assembly_group}_err.log"),
+        out = os.path.join("logs","rnaspades","outputlog_{assembly_group}_out.log")
+    conda: PARENT_DIR + "/env/rna.yaml"
+    shell:
+        """
+        mkdir -p {params.outdir}
+        rnaSPAdes/bin/spades.py --rna -m 300 -t 10 --dataset {params.coassembly_file} -o {params.outdir} 2> {log.err} 1> {log.out}
+        """
+rule salmon_index:
+    input:
+        reference = lambda wildcards: f"outputs/rnaspades_multi_{wildcards.assembly_group}/filtered_transcripts_no_nc.fasta"
+    output:
+        directory("outputs/salmon_index_{assembly_group}")
+    conda:
+        PARENT_DIR + "/env/salmon.yaml"
+    shell:
+        """
+        salmon index -t {input.reference} -i {output} -k 31
+        """
+rule salmon_quant:
+    input:
+        index=lambda wildcards: INDEX[get_sample_name(wildcards)],
+        reads=get_reads
+    output:
+        directory("outputs/quant/{sample}")
+    conda:
+        PARENT_DIR + "/env/salmon.yaml"
+    shell:
+        """
+        salmon quant -i {input.index} -l A -1 {input.reads[0]} -2 {input.reads[1]} --validateMappings -o {output}
+        """
+rule salmon_merge_914:
+    input:
+        salmon_quant = lambda wildcards: expand("outputs/quant/{sample}", sample=SAMPLES_914),
+    output:
+        merged_quant = "outputs/quant_merge/914/merged.sf"
+    conda:
+        PARENT_DIR + "/env/salmon.yaml"
+    shell:
+        """
+        mkdir -p outputs/salmon_merge/914
+        salmon quantmerge --quants {input.salmon_quant} -o {output.merged_quant}
+        """
+rule salmon_merge_874:
+    input:
+        salmon_quant = lambda wildcards: expand("outputs/quant/{sample}", sample=SAMPLES_874),
+    conda:
+        PARENT_DIR + "/env/salmon.yaml"
+    output:
+        merged_quant = "outputs/quant_merge/874/merged.sf"
+    shell:
+        """
+        mkdir -p outputs/salmon_merge/874
+        salmon quantmerge --quants {input.salmon_quant} -o {output.merged_quant}
+        """
+rule eukulele_multi_nt:
+    input:
+        expand(os.path.join("outputs","rnaspades_multi_{assembly_group}","transcripts.fasta"),assembly_group=assembly_group)
+    conda:
+        PARENT_DIR + "/env/eukulele.yaml"
+    output:
+        expand(os.path.join("outputs", "EUKulele_multi_nt", "taxonomy_estimation", "{assembly_group}-estimated-taxonomy.out"),
+               assembly_group=assembly_group)
+    params:
+        output_dir=os.path.join("outputs", "EUKulele_multi_nt"),
+        sample_dir=os.path.join("outputs", "EUKulele_multi_nt_sampledir")
+    shell:
+        """
+        mkdir -p {params.sample_dir}
+        for curr in {input}; do
+            short_id=$(echo $curr | rev | cut -d"/" -f2 | cut -d"_" -f1 | rev)
+            real_path=$(readlink -f $curr)
+            ln -s $real_path {params.sample_dir}/"$short_id".fasta
+        done
+
+        EUKulele --reference_dir /vortexfs1/omics/alexander/akrinos/remodeling/EUKulele/databases/marmmetsp_better_diatom_taxonomy/ --sample_dir {params.sample_dir} -o {params.output_dir} --mets_or_mags mets --no_busco --n_ext .fasta
+        """
+rule remove_bact:
+    input:
+        eukulele_files = expand(os.path.join("outputs","EUKulele_multi_nt",
+                     "taxonomy_estimation","{assembly_group}-estimated-taxonomy.out"),
+               assembly_group=assembly_group),
+        fasta_files = expand(os.path.join("outputs", "rnaspades_multi_{assembly_group}", "transcripts.fasta"),
+               assembly_group=assembly_group)
+    output:
+        CLEANED_FASTA=os.path.join("outputs","bact_removed","cleaned.fasta"),
+        BACT_FASTA=os.path.join("outputs","bact_removed","bacteria.fasta"),
+        EUK_SEQS=temp(os.path.join("outputs","bact_removed","list_of_euk_sequences.txt")),
+        BACT_SEQS=temp(os.path.join("outputs","bact_removed","list_of_bact_sequences.txt")),
+        ALL_FASTA=temp(os.path.join("outputs","bact_removed","all_assemblies.fasta"))
+    shell:
+        """
+        touch {output.BACT_SEQS}
+        rm {output.BACT_SEQS}
+        for curr in {input.eukulele_files}; do
+            assembly_curr=$(echo $curr | rev | cut -d"/" -f 1 | rev | cut -d"-" -f1)
+            cat $curr | grep -v "Bacteria" | grep -v "Archaea" | cut -f 2 | sed "s/^/"$assembly_curr"_/" >> {output.EUK_SEQS}
+            cat $curr | grep "Bacteria" | cut -f 2 | sed "s/^/"$assembly_curr"_/" >> {output.BACT_SEQS}
+        done
+        touch {output.ALL_FASTA}
+        rm {output.ALL_FASTA}
+        touch {output.ALL_FASTA}
+        for curr in {input.fasta_files}; do
+            assembly_curr=$(echo $curr | rev | cut -d"/" -f 2 | cut -d"_" -f1 | rev)
+            sed -e "s/>/>"$assembly_curr"_/g" $curr >> {output.ALL_FASTA}
+        done
+        seqtk subseq {output.ALL_FASTA} {output.BACT_SEQS} > {output.BACT_FASTA}
+        seqtk subseq {output.ALL_FASTA} {output.EUK_SEQS} > {output.CLEANED_FASTA}
+        """
+rule mmseq2:
+    input: 
+        predicted_proteins = expand(os.path.join(PARENT_DIR, "TransDecoder_p1", "RCC{assembly_group}", "unassigned_og_predicted_proteins.fasta"), assembly_group = assembly_group) 
+    conda:
+        PARENT_DIR + "/env/mmseq2.yaml"
+    output:
+        "outputs/mmseq2/DB_clu.tsv"
+    params:
+        tmp = "outputs/mmseq2/tmp",
+        DB = "outputs/mmseq2/DB",
+        DB_clu = "outputs/mmseq2/DB_clu"
+    shell:
+        """
+        mkdir -p outputs/mmseq2
+        mkdir -p outputs/mmseq2/tmp
+        mmseqs createdb {input.predicted_proteins} {params.DB}
+        mmseqs cluster {params.DB} {params.DB_clu} {params.tmp} --min-seq-id 0.75 -c 0.50 --cov-mode 1
+        mmseqs createtsv {params.DB} {params.DB} {params.DB_clu} {output}
+        """

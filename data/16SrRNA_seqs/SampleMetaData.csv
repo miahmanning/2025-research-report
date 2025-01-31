@@ -1,0 +1,76 @@
+SampleID,Sample,Project,Well,PCRDate_Treat,SampleInfo_Rep,Notes_Filter
+pt15,15,PTown,1A,4/8/24,"Feb. 2022, F29, 0.8, 1A",Used 4µl for gel
+pt34,34,PTown,1B,4/8/24,"Feb. 2022, F29, 0.8, 2A",Used 4µl for gel
+pt161,161,PTown,1C,4/8/24,"Feb. 2023, F29, 0.8, 1A",Used 4µl for gel
+pt162,162,PTown,1D,4/8/24,"Feb. 2023, F29, 0.8, 2A",Used 4µl for gel
+pt163,163,PTown,1E,4/8/24,"Feb. 2023, F29, 0.8, 3A",Used 4µl for gel
+pt170,170,PTown,1F,4/8/24,"March 2023, F29, 0.8, 3A",Used 4µl for gel
+pt171,171,PTown,1G,4/8/24,"March 2023, F29, 0.8, 1A",Used 4µl for gel
+pt172,172,PTown,1H,4/9/24,"March 2023, F29, 0.8, 2A",Used 4µl for gel
+pt179,179,PTown,2A,4/9/24,"April 2023, F29, 0.8, 1A",Used 4µl for gel
+pt180,180,PTown,2B,4/9/24,"April 2023, F29, 0.8, 3A",Used 4µl for gel
+pt181,181,PTown,2C,4/9/24,"April 2023, F29, 0.8, 2A",Used 4µl for gel
+pt188,188,PTown,2D,4/9/24,"May 2023, F29, 0.8, 3A",Used 4µl for gel
+pt189,189,PTown,2E,4/9/24,"May 2023, F29, 0.8, 1A",Used 4µl for gel
+pt190,190,PTown,2F,4/9/24,"May 2023, F29, 0.8, 2A",Used 4µl for gel
+pt197,197,PTown,2G,4/9/24,"July 2023, F29, 0.8, 2A",Used 4µl for gel
+pt198,198,PTown,2H,4/9/24,"July 2023, F29, 0.8, 1A",Used 4µl for gel
+pt199,199,PTown,3A,4/9/24,"July 2023, F29, 0.8, 3A",Used 4µl for gel
+m1,"874, 25C, 10%N, A","Miah, Nitrogen Exp",3B,4/9/24,"874, 25C, 10%N, A",Used 4µl for gel
+m2,"874, 25C, 10%N, B","Miah, Nitrogen Exp",3C,4/9/24,"874, 25C, 10%N, B",Used 4µl for gel
+m3,"874, 25C, 10%N, C","Miah, Nitrogen Exp",3D,4/9/24,"874, 25C, 10%N, C",Used 4µl for gel
+m4,"874, 25C, 100%N, A","Miah, Nitrogen Exp",3E,4/9/24,"874, 25C, 100%N, A",Used 4µl for gel
+m5,"874, 25C, 100%N, B","Miah, Nitrogen Exp",3F,4/9/24,"874, 25C, 100%N, B",Used 4µl for gel
+m6,"874, 25C, 100%N, C","Miah, Nitrogen Exp",3G,4/9/24,"874, 25C, 100%N, C",Used 4µl for gel
+m7,"874, 22C, 10%N, A","Miah, Nitrogen Exp",3H,4/9/24,"874, 22C, 10%N, A",Used 4µl for gel
+m8,"874, 22C, 10%N, B","Miah, Nitrogen Exp",4A,4/9/24,"874, 22C, 10%N, B",Used 4µl for gel
+m9,"874, 22C, 10%N, C","Miah, Nitrogen Exp",4B,4/9/24,"874, 22C, 10%N, C",Used 4µl for gel
+m10,"874, 22C, 100%N, A","Miah, Nitrogen Exp",4C,4/9/24,"874, 22C, 100%N, A",Used 4µl for gel
+m11,"874, 22C, 100%N, B","Miah, Nitrogen Exp",4D,4/9/24,"874, 22C, 100%N, B",Used 4µl for gel
+m12,"874, 22C, 100%N, C","Miah, Nitrogen Exp",4E,4/9/24,"874, 22C, 100%N, C",Used 4µl for gel
+m13,"874, 18C, 10%N, A","Miah, Nitrogen Exp",4F,4/9/24,"874, 18C, 10%N, A",Used 4µl for gel
+m14,"874, 18C, 10%N, B","Miah, Nitrogen Exp",4G,4/9/24,"874, 18C, 10%N, B",Used 4µl for gel
+m15,"874, 18C, 10%N, C","Miah, Nitrogen Exp",4H,4/9/24,"874, 18C, 10%N, C",Used 4µl for gel
+m16,"874, 18C, 100%N, A","Miah, Nitrogen Exp",5A,4/9/24,"874, 18C, 100%N, A",Used 4µl for gel
+m17,"874, 18C, 100%N, B","Miah, Nitrogen Exp",5B,4/9/24,"874, 18C, 100%N, B",Used 4µl for gel
+m18,"874, 18C, 100%N, C","Miah, Nitrogen Exp",5C,4/9/24,"874, 18C, 100%N, C",Used 4µl for gel
+m19,"914, 28C, 10%N, A","Miah, Nitrogen Exp",5D,4/9/24,"914, 28C, 10%N, A",Used 4µl for gel
+m20,"914, 28C, 10%N, B","Miah, Nitrogen Exp",5E,4/9/24,"914, 28C, 10%N, B",Used 4µl for gel
+m21,"914, 28C, 100%N, A","Miah, Nitrogen Exp",5F,4/9/24,"914, 28C, 100%N, A",Used 4µl for gel
+m22,"914, 28C, 100%N, B","Miah, Nitrogen Exp",5G,4/9/24,"914, 28C, 100%N, B",Used 4µl for gel
+m23,"914, 28C, 100%N, C","Miah, Nitrogen Exp",5H,4/9/24,"914, 28C, 100%N, C",Used 4µl for gel
+m24,"914, 22C, 10%N, A","Miah, Nitrogen Exp",6A,4/9/24,"914, 22C, 10%N, A",Used 4µl for gel
+m25,"914, 22C, 10%N, B","Miah, Nitrogen Exp",6B,4/9/24,"914, 22C, 10%N, B",Used 4µl for gel
+m26,"914, 22C, 10%N, C","Miah, Nitrogen Exp",6C,4/9/24,"914, 22C, 10%N, C",Used 4µl for gel
+m27,"914, 22C, 100%N, A","Miah, Nitrogen Exp",6D,4/9/24,"914, 22C, 100%N, A",Used 4µl for gel
+m28,"914, 22C, 100%N, B","Miah, Nitrogen Exp",6E,4/9/24,"914, 22C, 100%N, B",Used 4µl for gel
+m29,"914, 22C, 100%N, C","Miah, Nitrogen Exp",6F,4/9/24,"914, 22C, 100%N, C",Used 4µl for gel
+m30,"914, 18C, 10%N, A","Miah, Nitrogen Exp",6G,4/9/24,"914, 18C, 10%N, A",Used 4µl for gel
+m31,"914, 18C, 10%N, B","Miah, Nitrogen Exp",6H,4/9/24,"914, 18C, 10%N, B",Used 4µl for gel
+m32,"914, 18C, 10%N, C","Miah, Nitrogen Exp",7A,4/9/24,"914, 18C, 10%N, C",Used 4µl for gel
+m33,"914, 18C, 100%N, A","Miah, Nitrogen Exp",7B,4/9/24,"914, 18C, 100%N, A",Used 4µl for gel
+m34,"914, 18C, 100%N, B","Miah, Nitrogen Exp",7C,4/9/24,"914, 18C, 100%N, B",Used 4µl for gel
+m35,"914, 18C, 100%N, C","Miah, Nitrogen Exp",7D,4/9/24,"914, 18C, 100%N, C",Used 4µl for gel
+b1,BLANK (4/9/24),blank,7E,4/9/24,Blank from PCR samples run on 4/9/24,Used 4µl for gel
+b2,BLANK (4/8/24),blank,7F,4/8/24,Blank from PCR samples run on 4/8/24,Used 4µl for gel
+L9,1-3 0.2,Pyro,7G,1,3,2
+L10,2-1 0.2,Pyro,7H,2,1,2
+L1,2-3 0.2,Pyro,8A,2,3,2
+L2,2-3 10.0,Pyro,8B,2,3,10
+L3,3-3 10.0,Pyro,8C,3,3,10
+L4,3-1 10.0,Pyro,8D,3,1,10
+L5,1-2 10.0,Pyro,8E,1,2,10
+L6,3-3 0.2,Pyro,8F,3,3,2
+L7,3-2 10.0,Pyro,8G,3,2,10
+L8,2-2 10.0,Pyro,8H,2,2,10
+L12,1-1 10,Pyro,9A,1,1,10
+L13,3-1 .2,Pyro,9B,3,1,2
+L14,1006 AB 10,Pyro,9C,AB,1,10
+L15,1006 AB .2,Pyro,9D,AB,1,2
+L16,1-2 .2,Pyro,9E,1,2,2
+L17,1003 10,Pyro,9F,1003,1,10
+L18,1003 .2,Pyro,9G,1003,1,2
+L19,3-2 .2,Pyro,9H,3,2,2
+L11,2-2 0.2,Pyro,10A,2,2,2
+L20,1-3 10,Pyro,10B,1,3,10
+L21,2-1 10,Pyro,10C,2,1,10

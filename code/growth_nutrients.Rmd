@@ -1,0 +1,876 @@
+---
+title: "N-T Growth and Nutrient Data"
+output: html_notebook
+---
+
+**Load Libraries**
+
+```{r, message=FALSE}
+packages <- c("tidyverse", "dplyr", "ggpubr", "knitr", "ARTool","emmeans", "rlang", "growthrates", "grid")
+
+install_and_load <- function(pkg) {
+  if (!require(pkg, character.only = TRUE)) {
+    install.packages(pkg, dependencies = TRUE)
+    library(pkg, character.only = TRUE)
+  } else {
+    library(pkg, character.only = TRUE)
+  }
+}
+
+invisible(lapply(packages, install_and_load))
+```
+
+### Load Cell Concentration data
+
+```{R}
+#Set wd to neat_data_output in flow-cytometyr-startup folder
+setwd("C:/Users/miahm/R/flow-cytometry-startup/output/neat_data_output/")
+
+#Load in raw data
+raw_874_n_exp <-read.csv(file ="874_n_exp/neat_data_2023-12-14.csv")
+raw_874_25_n_exp <-read.csv(file ="874_n_exp/neat_data_2024-01-30.csv")
+raw_914_n_exp <-read.csv(file ="914_n_exp/neat_data_2023-10-23.csv")
+
+#Combine data from all experiments and reformat
+raw_n_exp <- rbind(raw_874_n_exp, raw_874_25_n_exp, raw_914_n_exp)
+clean_n_exp <- select(raw_n_exp,Folder,Well,temp_c,ConcCellmL,n_conc,strain,rep)
+clean_n_exp$Folder<-format(as.Date(clean_n_exp$Folder, "%Y-%m-%d"), "%m/%d")
+
+#REMOVE 914, 28C, 10%N, Rep C (crashed) and REMOVE 874 28C (did not grow well)
+clean_n_exp <- clean_n_exp%>%
+  filter(!(rep == "C" & temp_c == 28 & strain == 914 & n_conc == "10")) %>%
+  filter(!(temp_c == 28 & strain == 874)) %>% 
+  arrange(Well)%>%
+  arrange(Folder)
+
+clean_n_exp$n_conc <- as.factor(clean_n_exp$n_conc)
+
+#Convert the date to "Days from start of experiment" for clarity
+clean_n_exp <- clean_n_exp %>%
+  arrange(strain, Folder) %>%
+  group_by(strain, temp_c) %>%
+  mutate(day_number = as.numeric(factor(Folder))) %>%
+  ungroup()
+
+# Calculate mean and standard deviation of log concentration
+n_exp <- clean_n_exp %>%
+  group_by(strain, day_number, n_conc, temp_c) %>%
+  summarise(avg_ConcCellmL = mean(ConcCellmL),
+            sd_ConcCellmL = sd(ConcCellmL),
+            .groups = 'drop')
+```
+
+## Growth Curves
+
+```{R}
+#--------------- 914----------------------
+n_exp_914 <- n_exp%>%
+  filter (strain==914)
+temp_labs_914 <- c("No heat stress", "Moderate heat stress", "High heat stress")
+names(temp_labs_914) <- c(18, 22, 28) #relabel temperatures
+spike_starts_914 <- n_exp_914 %>% #Harvest day
+  filter(n_conc == "Spike") %>%
+  group_by(temp_c) %>%
+  summarize(spike_start = min(day_number), .groups = "drop")
+
+growth_curves_914<-ggplot(data=n_exp_914, mapping=aes(x=day_number, y=avg_ConcCellmL,linetype = n_conc, color = as.factor(temp_c)))+
+  geom_vline(data = spike_starts_914, aes(xintercept = spike_start), color = "gray", linetype = "dashed") +
+  geom_point(size= 1)+ geom_line() +
+  geom_errorbar(aes(ymin = avg_ConcCellmL - sd_ConcCellmL, ymax = avg_ConcCellmL + sd_ConcCellmL), width = 0.2, position = position_dodge(width = 0.5), linetype ="solid") +
+  facet_grid(strain~temp_c, labeller = labeller(temp_c =temp_labs_914), scales = "free")+
+  theme_pubr()+
+  theme(axis.title.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size=12),
+        axis.title.y = element_blank(),
+        strip.text.x = element_blank(),
+        panel.grid = element_blank(),
+        legend.position = "bottom",
+        legend.box="vertical", 
+        legend.margin=margin(),
+        legend.text=element_text(size=12)) +
+  labs(x = "Day",
+       color = "Temperature Condition",
+       linetype = "Nitrogen Concentration") +
+  scale_linetype_manual(values = c("10" = "dashed", "100" = "solid", "Spike" = "dotted"),
+                     labels = c("10" = "N limited", "100" = "N replete", "Spike" = "Re-feed"))+
+  scale_color_manual(values = c("18" = "#008CF4", 
+                                "22" = "#D6A400", 
+                                "28" = "#BB0000"), labels = c("18" = "No Heat Stress", "22" = "Moderate Heat Stress", "28" = "High Heat Stress"))+
+  scale_x_continuous(breaks = seq(min(n_exp$day_number), max(n_exp$day_number), by = 1))+
+  guides(color = guide_legend(override.aes = list(shape = 15, linetype = 0, size = 4)))
+growth_curves_914
+
+#------------------ 874 -----------------------
+n_exp_874 <- n_exp%>%
+  filter (strain==874)
+temp_labs_874 <- c("No heat stress", "Moderate heat stress", "High heat stress")
+names(temp_labs_874) <- c(18, 22, 25) #Relabel temperatures
+spike_starts_874 <- n_exp_874 %>% #Harvest day
+  filter(n_conc == "Spike") %>%
+  group_by(temp_c) %>%
+  summarize(spike_start = min(day_number), .groups = "drop")
+
+growth_curves_874<-ggplot(data=n_exp_874, mapping=aes(x=day_number, y=avg_ConcCellmL, linetype=n_conc, color = as.factor(temp_c)))+
+  geom_vline(data = spike_starts_874, aes(xintercept = spike_start), color = "gray", linetype = "dashed") +
+  geom_line() +
+  geom_errorbar(aes(ymin = avg_ConcCellmL - sd_ConcCellmL, ymax = avg_ConcCellmL + sd_ConcCellmL), width = 0.2, position = position_dodge(width = 0.5), linetype="solid") +
+  geom_point(size = 1)+
+  facet_grid(strain~temp_c, labeller = labeller(temp_c =temp_labs_874), scales = "free")+
+  theme_pubr()+
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.y = element_blank(),
+        panel.grid = element_blank(),
+        strip.text.x = element_text(size = 12),
+        strip.text.y = element_text(size = 12),
+        legend.text=element_text(size=12),
+        legend.box="vertical", 
+        legend.margin=margin()) +
+  labs(color = "Temperature Condition",linetype = "Nitrogen Concentration") +
+  scale_linetype_manual(values = c("10" = "dashed", "100" = "solid", "Spike" = "dotted"),
+                     labels = c("10" = "N limited", "100" = "N replete", "Spike" = "Re-feed"))+
+  scale_color_manual(values = c("18" = "#008CF4", 
+                                "22" = "#D6A400", 
+                                "25" = "#BB0000"), labels = c("18" = "No Heat Stress", "22" = "Moderate Heat Stress", "25" = "High Heat Stress"))+
+  scale_x_continuous(breaks = seq(min(n_exp$day_number), max(n_exp$day_number), by = 1))+
+  guides(color = guide_legend(override.aes = list(shape = 15, linetype = 0, size = 4)))
+growth_curves_874
+
+#Combine all samples into 1 plot
+growth_curves<-ggarrange(growth_curves_874, growth_curves_914, common.legend = TRUE,legend="bottom", nrow = 2)
+growth_curves<- annotate_figure(growth_curves,
+                left = text_grob("Log Cell Concentration", rot = 90))
+growth_curves
+ggsave(filename = "growth_curves.png", growth_curves, width = 10, height = 5, dpi = 300)
+```
+
+## Manual Specific Growth Rate
+
+```{r}
+#growth_rate_initial <- clean_n_exp %>%
+#  filter(Folder == "10/14" |Folder == "12/01" | Folder == "01/19") %>%
+#  select(Folder,temp_c,ConcCellmL,n_conc,strain,rep) %>%
+#  rename(initial_conc = ConcCellmL)
+#growth_rate_final <- clean_n_exp %>%
+#  filter(Folder == "10/16" | Folder == "12/04" | Folder == "01/22") %>%
+#  select(Folder, temp_c, ConcCellmL, n_conc, strain, rep) %>%
+#  rename(final_conc = ConcCellmL)
+
+#growth_rate <- cbind(growth_rate_initial, growth_rate_final$final_conc)
+#growth_rate$growth_rate <- #(log(growth_rate$`growth_rate_final$final_conc`)-log(growth_rate$initial_conc))/4
+
+
+#gr <- growth_rate %>%
+#  group_by(temp_c, n_conc, strain) %>%
+#  summarise(average = mean(growth_rate, na.rm = TRUE),
+#            std_deviation = sd(growth_rate, na.rm = TRUE))
+```
+
+## Growth Rate with growthrates package
+
+```{R}
+many_spline_fits <- all_splines(ConcCellmL ~ day_number | strain + n_conc + rep + temp_c,
+                                data = clean_n_exp, spar = 0.5)
+spline_gr <- as.data.frame(coef(many_spline_fits))
+spline_gr <- spline_gr %>%
+  rownames_to_column(var = "row_names")%>%
+  separate(row_names, into = c("Strain", "n_conc", "rep", "temp_c"), sep = ":", fill = "right")
+
+spline_gr$temp_c <- as.numeric(spline_gr$temp_c)
+spline_gr <- spline_gr %>%
+  filter(n_conc != "Spike") %>%
+  mutate(temp_cond = case_when(
+    temp_c == 18 ~ "No heat stress",
+    temp_c == 22 ~ "Moderate heat stress",
+    temp_c %in% c(25, 28) ~ "High heat stress"))
+
+spline_gr <- spline_gr %>%
+  mutate(temp_cond = factor(temp_cond, 
+                            levels = c("No heat stress", "Moderate heat stress", "High heat stress")))
+spline_gr$n_conc <- as.factor(spline_gr$n_conc)
+spline_gr$Strain <- as.factor(spline_gr$Strain)
+
+#growth_rate_plot <- ggplot(data = spline_gr, aes(x = factor(Strain), y = mumax)) +
+  #geom_jitter(aes(shape = n_conc), fill = "black", width = 0.1, size = 1) +
+#  geom_boxplot(aes(fill = interaction(n_conc, Strain), color = Strain),
+#               outlier.shape = NA, position = position_dodge(0.8), alpha = 0.6) +
+#  facet_wrap(~temp_cond) +
+#  scale_fill_manual(values = c("10.874" = "white", "100.874" = "#7A0CDA", 
+#                               "10.914" = "white", "100.914" = "#FF598B"),
+#                    labels = c("10.874" = "N limited 874", "100.874" = "N replete 874", "10.914" = "N limited 914", "100.914" = "N replete 914")) +
+#  scale_color_manual(values = c("874" = "#7A0CDA", "914" = "#FF598B")) +
+#  scale_x_discrete(drop = FALSE) +
+#  theme_bw() +
+#  theme(axis.title.x = element_blank(),
+#        axis.text.x = element_blank(),
+#        axis.ticks.x = element_blank(),
+#        panel.grid = element_blank(),
+#        strip.text = element_text(),
+#        legend.position = "bottom") +
+#  labs(y = "SGR (cells per day)")
+#growth_rate_plot
+
+sgr_plot <- ggplot(data = spline_gr, aes(x = temp_cond, y = mumax)) +
+  geom_boxplot(aes(fill = interaction(n_conc, Strain, temp_cond), color = temp_cond), 
+               outlier.shape = NA, 
+               position = position_dodge(width = 0.8), alpha = 0.7) +
+  facet_wrap(~Strain) +
+  scale_fill_manual(values = c("10.874.No heat stress" = "white", 
+                               "100.874.No heat stress" = "#008CF4", 
+                               "10.914.No heat stress" = "white", 
+                               "100.914.No heat stress" = "#008CF4",
+                               "10.874.Moderate heat stress" = "white", 
+                               "100.874.Moderate heat stress" = "#D6A400", 
+                               "10.914.Moderate heat stress" = "white", 
+                               "100.914.Moderate heat stress" = "#D6A400",
+                               "10.874.High heat stress" = "white", 
+                               "100.874.High heat stress" = "#BB0000", 
+                               "10.914.High heat stress" = "white", 
+                               "100.914.High heat stress" = "#BB0000"),
+                    labels = c("10.874.No heat stress" = "N limited", 
+                               "100.874.No heat stress" = "N replete", 
+                               "10.914.No heat stress" = "N limited",
+                               "100.914.No heat stress" = "N replete",
+                               "100.914.Moderate heat stress" = "N replete",
+                               "10.874.Moderate heat stress" = "N limited", 
+                               "100.874.Moderate heat stress" = "N replete", 
+                               "10.914.Moderate heat stress" = "N limited", 
+                               "100.914.Moderate heat stress" = "N replete",
+                               "10.874.High heat stress" = "N limited", 
+                               "100.874.High heat stress" = "N replete", 
+                               "10.914.High heat stress" = "N limited", 
+                               "100.914.High heat stress" = "N replete")) +
+  scale_color_manual(values = c("No heat stress" = "#008CF4", "Moderate heat stress" = "#D6A400", "High heat stress" = "#BB0000")) +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size=12),
+        strip.text = element_text(size =12),
+        legend.position = "bottom", 
+        axis.text.x = element_blank(),
+        axis.text.y = element_text(size=12),
+        axis.ticks.x = element_blank()) +
+  labs(#x = "Temperature (°C)", 
+       y = "SGR (cells day⁻¹)")+
+  guides(fill="none",
+         #fill = guide_legend(title = "Nitrogen Condition",
+     #                        override.aes = list(color = "black", 
+                                                # fill = c("white","darkgrey"))),
+         color = guide_legend(title = "Temperature Condition",
+                              override.aes = list(fill = c("#008CF4","#D6A400", "#BB0000"))))
+
+#Manually adding the significance labels
+df1 <- data.frame(a = c(1, 1:3,3), b = c(0.8, 0.81, 0.81, 0.81, 0.8), Strain = c("874", "874", "874", "874", "874"))
+df2 <- data.frame(a = c(1, 1,2, 2), b = c(0.75, 0.76, 0.76, 0.75), Strain = c("874", "874", "874", "874"))
+df3 <- data.frame(a = c(1, 1:3,3), b = c(0.78, 0.79, 0.79, 0.79, 0.78), Strain = c("914", "914", "914", "914", "914"))
+df4 <- data.frame(a = c(1, 1,2, 2), b = c(0.75, 0.76, 0.76, 0.75), Strain = c("914", "914", "914", "914"))
+
+# *** <0.001 ; ** 0.01-0.001; * 0.05-0.01
+sgr_plot <- sgr_plot + 
+  geom_line(data = df1, aes(x = a, y = b, group = Strain)) + geom_text(data = data.frame(x = 2, y = 0.815, Strain = "874", label = "***"),aes(x = x, y = y, label = label))+#p<0.0001
+  geom_line(data = df2, aes(x = a, y = b, group = Strain)) + geom_text(data = data.frame(x = 1.5, y = 0.765, Strain = "874", label = "***"),aes(x = x, y = y, label = label))+ #p<0.0001
+  geom_line(data = df3, aes(x = a, y = b, group = Strain)) + geom_text(data = data.frame(x = 2, y = 0.795, Strain = "914", label = "*"),aes(x = x, y = y, label = label))+ #p=0.0216
+  geom_line(data = df4, aes(x = a, y = b, group = Strain)) + geom_text(data = data.frame(x = 1.5, y = 0.765, Strain = "914", label = "***"),aes(x = x, y = y, label = label)) #p=0.0003
+  
+sgr_plot
+```
+
+## Model Growth rate
+
+```{R}
+#Arianna model
+temp_range <- seq(15, 30, by = 0.1)
+
+# Calculate GR values for strain 874
+gr_874 <- data.frame(
+  temp_c = temp_range,
+  mumax = 0.35372160 * exp(0.01791198 * temp_range) *
+    (1 - ((temp_range - 17.565502) / (22.90887 / 2))^2),
+  Strain = "874"
+)
+
+# Calculate GR values for strain 914
+gr_914 <- data.frame(
+  temp_c = temp_range,
+  mumax = 0.23904316 * exp(0.06555418 * temp_range) *
+    (1 - ((temp_range - 19.818560) / (24.52014 / 2))^2),
+  Strain = "914"
+)
+
+# Combine data for both strains
+gr_data <- rbind(gr_874, gr_914)
+model_gr_plot <- ggplot(data = spline_gr, aes(x = temp_c, y = mumax)) +
+  geom_boxplot(aes(fill = interaction(n_conc, Strain, temp_c), color = as.factor(temp_c)), 
+               outlier.shape = NA, 
+               position = position_dodge(width = 2.5), alpha = 0.7) +
+  geom_line(data = gr_data, aes(x = temp_c, y = mumax, color = "black"), 
+            size = 1) +
+  facet_wrap(~Strain) +
+  scale_fill_manual(values = c("10.874.18" = "white", 
+                               "100.874.18" = "#008CF4", 
+                               "10.914.18" = "white", 
+                               "100.914.18" = "#008CF4",
+                               "10.874.22" = "white", 
+                               "100.874.22" = "#D6A400", 
+                               "10.914.22" = "white",
+                               "100.914.22" = "#D6A400",
+                               "10.874.25" = "white",
+                               "100.874.25" = "#BB0000", 
+                               "10.914.28" = "white", 
+                               "100.914.28" = "#BB0000"),
+                    labels = c("10.874.18" = "N limited 874", "100.874.18" = "N replete 874", "10.914.18" = "N limited 914", "100.914.18" = "N replete 914","10.874.22" = "N limited 874", "100.874.22" = "N replete 874","10.914.22" = "N limited 914", "100.914.22" = "N replete 914", "10.874.25" = "N limited 874", "100.874.25" = "N replete 874","10.914.28" = "N limited 914", "100.914.28" = "N replete 914")) +
+  scale_color_manual(values = c("18" = "#008CF4", "22" = "#D6A400", "25" = "#BB0000", "28" = "#BB0000"), labels = c("18" = "No heat stress", "22" = "Moderate heat stress", 
+                                   "25" = "High heat stress",
+                                   "28" = "High heat stress")) +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.text = element_text(size = 12),
+        axis.text.y = element_text(size=12),
+        axis.text.x = element_text(size=12),
+        axis.title.y = element_text(size=12),
+        axis.title.x = element_text(size=12),
+        legend.position = "bottom") +
+  labs(x = "Temperature (°C)", y = "SGR (cells day⁻¹)")+
+  guides(fill="none",
+         #fill = guide_legend(title = "Nitrogen Condition",
+                            # override.aes = list(color = "black", 
+                           #                      fill = c("white","darkgrey"))),
+         color = guide_legend(title = "Temperature Condition",
+                              override.aes = list(fill = c("#008CF4","#D6A400",
+                                                           "#BB0000","#BB0000"))))
+model_gr_plot
+ggsave(filename = "model_sgr.png", model_gr_plot, width = 6, height = 4, dpi = 300)
+```
+
+```{R}
+model_only_plot <- ggplot(data = gr_data, aes(x = temp_c, y = mumax, linetype = Strain)) +
+  geom_line(size =1) + 
+  geom_vline(xintercept=18, linetype = "dashed", alpha =0.6, color = "#008CF4") + 
+  geom_vline(xintercept=22, linetype = "dashed", alpha =0.6, color = "#D6A400") +
+  geom_vline(xintercept=25,linetype = "dashed", alpha =0.6, color = "#BB0000") + 
+  geom_vline(xintercept=28, linetype = "dashed", alpha =0.6, color = "#BB0000")+
+  theme_bw() + theme(panel.grid = element_blank())+ 
+  labs(x = "Temperature (°C)", y = "SGR (cells day⁻¹)")
+model_only_plot
+```
+
+## Aligned Ranks Transformation (ART) ANOVA SGR
+
+```{R}
+#Confirming normality assumption
+shapiro.test(spline_gr$mumax)
+
+ggdensity(spline_gr$mumax, 
+          main = "Density plot of growth rate")
+ggqqplot(spline_gr$mumax)
+#	Shapiro-Wilk normality test
+#data:  growth_rate$growth_rate
+#W = 0.92065, p-value = 0.01489
+#p < 0.05, so it is NOT normally distributed
+
+```
+
+```{R}
+# Aligned Ranks Transformation (ART) ANOVA
+library(ARTool)
+library(emmeans) 
+spline_gr <- select(spline_gr,temp_c,n_conc,Strain,mumax)
+spline_gr <- spline_gr %>%
+  mutate(temp_cond = case_when(
+    temp_c == 18 ~ "optimal",
+    temp_c == 22 ~ "moderate heat",
+    temp_c %in% c(25, 28) ~ "high heat"))
+spline_gr$temp_c <- as.numeric(spline_gr$temp_c)
+spline_gr$n_conc <- as.factor(spline_gr$n_conc)
+spline_gr$temp_cond <- as.factor(spline_gr$temp_cond)
+spline_gr$Strain <- as.factor(spline_gr$Strain)
+model_sgr = art(mumax ~ Strain * temp_cond * n_conc, data = spline_gr)
+model_sgr #warning for mean being not ~0...I will go with this for now.
+
+#Checking how normal it looks...ehhhh
+res.rnk = model_sgr$residuals
+qqnorm(
+  res.rnk, pch = 20, main = "Rank-Transformed",
+  cex.lab = 1, cex.axis = 0.7, cex.main = 1
+)
+qqline(res.rnk)
+
+#Running the anova on the ranked growth rate
+anova(model_sgr)
+
+art.con(model_sgr, "Strain", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_sgr, "temp_cond", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_sgr, "Strain:temp_cond", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_sgr, "Strain:n_conc", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_sgr, "Strain:temp_cond:n_conc", adjust="holm", interactions= TRUE) %>% 
+		  summary()
+
+```
+
+```{r}
+#growth_rate <- growth_rate %>%
+#  mutate(temp_cond = case_when(
+#    temp_c == 18 ~ "No heat stress",
+#    temp_c == 22 ~ "Moderate heat stress",
+#    temp_c %in% c(25, 28) ~ "High heat stress"))
+
+#growth_rate <- growth_rate %>%
+#  mutate(temp_cond = factor(temp_cond, 
+#                            levels = c("No heat stress", "Moderate heat stress", "High heat stress")))
+
+#growth_rate_plot <- ggplot(data = growth_rate, aes(x = factor(strain), y = growth_rate)) +
+  #geom_jitter(aes(shape = n_conc), fill = "black", width = 0.1, size = 1) +
+#  geom_boxplot(aes(fill = interaction(n_conc, strain), color = strain),
+#               outlier.shape = NA, position = position_dodge(0.8), alpha = 0.7) +
+#  facet_wrap(~temp_cond) +
+#  scale_fill_manual(values = c("10.874" = "white", "100.874" = "#a06ec8", 
+#                               "10.914" = "white", "100.914" = "#FFB0C2"),
+#                    labels = c("10.874" = "N limited 874", "100.874" = "N replete 874", "10.914" = "N limited 914", "100.914" = "N replete 914")) +
+#  scale_color_manual(values = c("874" = "#a06ec8", "914" = "#FFB0C2")) +
+#  scale_x_discrete(drop = FALSE) +
+#  theme_bw() +
+#  theme(axis.title.x = element_blank(),
+#        axis.text.x = element_blank(),
+#        axis.ticks.x = element_blank(),
+#        panel.grid = element_blank(),
+#        strip.text = element_text(),
+#        legend.position = "bottom") +
+#  labs(y = "SGR (cells per day)")
+#growth_rate_plot
+```
+
+# Nutrients
+
+```{R}
+setwd("C:/Users/miahm/R/Nitrogen Experiment")
+# Load data
+nutrients <- read.csv(file="nutrients_data.csv")
+nutrients$n_conc <- factor(nutrients$n_conc)
+nutrients$temp <- factor(nutrients$temp)
+nutrients$strain <- factor(nutrients$strain)
+nutrients$Result_norm <- nutrients$Result / (1e3 * nutrients$cell_conc)
+nutrients$Result_norm <- nutrients$Result_norm / 1e-9 #convert to pg/cell
+nutrients <- nutrients %>%
+  mutate(temp_cond = case_when(
+    temp == 18 ~ "No heat stress",
+    temp == 22 ~ "Moderate heat stress",
+    temp %in% c(25, 28) ~ "High heat stress"))
+
+# Reformat and calculate ratios
+nutrients_wide <- nutrients %>%
+  pivot_wider(names_from = Parameter, values_from = Result_norm) %>%
+  group_by(temp_cond, n_conc, strain, rep) %>%
+  summarize(PP = mean(PP, na.rm = TRUE),
+            PN = mean(PN, na.rm = TRUE),
+            PC = mean(PC, na.rm = TRUE),
+            .groups = 'drop') %>%
+  mutate(NP_moles = PN * 1e-3 / 14.007,
+         PC_moles = PC * 1e-3 / 12.011,
+         PP_moles = PP * 1e-3 / 30.974,
+         NP_ratio = NP_moles / PP_moles,
+         CN_ratio = PC_moles / NP_moles,
+         CP_ratio = PC_moles / PP_moles) %>%
+  mutate(temp_cond = factor(temp_cond, levels = c("No heat stress", 
+                                       "Moderate heat stress", 
+                                       "High heat stress")))
+#Calculate mean and SD
+#combined_summary <- function(data, parameter) {
+#  summary <- data %>%
+#    group_by(n_conc, strain, temp_cond) %>%
+#    summarize(mean_value = mean(get(parameter), na.rm = TRUE),
+#              sd_value = sd(get(parameter), na.rm = TRUE),
+#              #tukey_label = unique(tukey_label),
+#              .groups = 'drop')
+#  return(summary)
+#}
+#pc_avg_summary <- combined_summary(nutrients_wide, "PC")
+#pn_avg_summary <- combined_summary(nutrients_wide, "PN")
+#pp_avg_summary <- combined_summary(nutrients_wide, "PP")
+#np_avg_summary <- combined_summary(nutrients_wide, "NP_ratio")
+#cn_avg_summary <- combined_summary(nutrients_wide, "CN_ratio")
+#cp_avg_summary <- combined_summary(nutrients_wide, "CP_ratio")
+```
+
+```{R}
+#Function to repeat making plots
+plot_nutrients <- function(data, parameter, y_label, show_facet_labels, show_x_axis) {
+  plot <- data %>%
+    ggplot(aes(x = temp_cond, y = {{parameter}}, fill = interaction(n_conc, strain, temp_cond), color = temp_cond)) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.8), alpha = 0.7) +
+    facet_wrap(~strain) +
+    scale_fill_manual(values = c("10.874.No heat stress" = "white", 
+                                 "100.874.No heat stress" = "#008CF4", 
+                                 "10.914.No heat stress" = "white", 
+                                 "100.914.No heat stress" = "#008CF4",
+                                 "10.874.Moderate heat stress" = "white", 
+                                 "100.874.Moderate heat stress" = "#D6A400", 
+                                 "10.914.Moderate heat stress" = "white", 
+                                 "100.914.Moderate heat stress" = "#D6A400",
+                                 "10.874.High heat stress" = "white", 
+                                 "100.874.High heat stress" = "#BB0000", 
+                                 "10.914.High heat stress" = "white", 
+                                 "100.914.High heat stress" = "#BB0000"),
+                        labels = c("10.874" = "N limited 874", "100.874" = "N replete 874", 
+                                   "10.914" = "N limited 914", "100.914" = "N replete 914"))+
+    scale_color_manual(values = c("No heat stress" = "#008CF4", 
+                                  "Moderate heat stress" = "#D6A400", 
+                                  "High heat stress" = "#BB0000")) +
+    theme_bw() +
+    theme(panel.grid = element_blank(),
+          axis.title.x = element_blank(),
+          legend.position = "bottom",
+          axis.text.y = element_text(size = 12),
+          axis.text.x = if (show_x_axis) element_text(size = 12) else element_blank(),
+          axis.ticks.x = if (show_x_axis) element_line() else element_blank()) +
+    labs(x = "Temperature Condition", 
+         y = y_label, 
+         fill = "Nitrogen Concentration")+
+    guides(fill="none",
+         #fill = guide_legend(title = "Nitrogen Condition",
+                            # override.aes = list(color = "black", 
+                           #                      fill = c("white","darkgrey"))),
+         color = guide_legend(title = "Temperature Condition",
+                              override.aes = list(fill = c("#008CF4","#D6A400", "#BB0000"))))
+  if (!show_facet_labels) {
+    plot <- plot + theme(strip.text = element_blank())
+    }
+  return(plot)
+}
+```
+## N:P ratio
+```{R}
+### N:P ratio ###
+np <- plot_nutrients(nutrients_wide, NP_ratio, "N:P (mol:mol)", FALSE, FALSE)
+
+#Adding significance lines
+df5 <- data.frame(a = c(2, 2,3,3), b = c(11.25, 11.4, 11.4, 11.25), strain = c("874", "874", "874", "874"))
+df6 <- data.frame(a = c(1, 1:3, 3), b = c(11.25,11.4, 11.4, 11.4, 11.25), strain = c("914", "914", "914", "914", "914"))
+df7 <- data.frame(a = c(1.8,1.8, 2,2.2,2.2), b = c(10.6, 10.75, 10.75, 10.75,10.6), strain = c("914", "914", "914","914", "914"))
+df8 <- data.frame(a = c(0.8,0.8, 1,1.2,1.2), b = c(10.6, 10.75, 10.75, 10.75,10.6), strain = c("914", "914", "914","914", "914"))
+
+# *** <0.001 ; ** 0.01-0.001; * 0.05-0.01
+np <- np + 
+  geom_line(data = df5, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 2.5, y = 11.5, strain = "874", label = "**"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+#p=0.0046
+  geom_line(data = df6, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 2, y = 11.5, strain = "914", label = "**"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+  #p=0.0155
+  geom_line(data = df7, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 2, y = 10.85, strain = "914", label = "*"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+#p=0.0039
+  geom_line(data = df8, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 1, y = 10.85, strain = "914", label = "*"),aes(x = x, y = y, label = label), inherit.aes = FALSE) #p=0.0077
+```
+## C:N ratio
+```{R}
+cn <- plot_nutrients(nutrients_wide, CN_ratio, "C:N (mol:mol)", FALSE, FALSE)
+
+#Adding significance lines
+df9 <- data.frame(a = c(2, 2,3,3), b = c(13.85, 14, 14, 13.85), strain = c("874", "874", "874", "874"))
+df10 <- data.frame(a = c(2.8,2.8,3,3.2,3.2), b = c(10.35,10.5, 10.5, 10.5, 10.35), strain = c("874", "874", "874", "874", "874"))
+df11 <- data.frame(a = c(1.8,1.8, 2,2.2,2.2), b = c(13.25, 13.4, 13.4, 13.4,13.25), strain = c("874", "874", "874","874","874"))
+df12 <- data.frame(a = c(0.8,0.8, 1,1.2,1.2), b = c(12.25, 12.4, 12.4, 12.4,12.25), strain = c("874", "874", "874","874", "874"))
+df13 <- data.frame(a = c(1.8,1.8,2,2.2,2.2), b = c(13.25, 13.4, 13.4, 13.4,13.25), strain = c("914", "914", "914", "914", "914"))
+df14 <- data.frame(a = c(0.8,0.8, 1,1.2,1.2), b = c(13.25, 13.4, 13.4, 13.4,13.25), strain = c("914", "914", "914","914","914"))
+
+# *** <0.001 ; ** 0.01-0.001; * 0.05-0.01
+cn <- cn + 
+  geom_line(data = df9, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 2.5, y = 14.1, strain = "874", label = "**"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+#p=0.0033
+  geom_line(data = df10, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 3, y = 10.65, strain = "874", label = "***"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+ #p=0.0008
+  geom_line(data = df11, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 2, y = 13.5, strain = "874", label = "***"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+#p<0.0001
+  geom_line(data = df12, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 1, y = 12.5, strain = "874", label = "***"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+ #p=0.0008
+  geom_line(data = df13, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 2, y = 13.5, strain = "914", label = "***"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+ #p<0.0001
+  geom_line(data = df14, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 1, y = 13.5, strain = "914", label = "***"),aes(x = x, y = y, label = label), inherit.aes = FALSE) #p<0.0001
+```
+## C:P Ratio
+```{R}
+cp <- plot_nutrients(nutrients_wide, CP_ratio, "C:P (mol:mol)", FALSE, FALSE)
+```
+## Particulate C
+```{R}
+pc <- plot_nutrients(nutrients_wide, PC, "PC (pg/cell)", TRUE, FALSE)
+
+#Adding significance lines
+df15 <- data.frame(a = c(2,2,3,3), b = c(13.8, 14, 14, 13.8), strain = c("874", "874", "874", "874"))
+df16 <- data.frame(a = c(1,1:3,3), b = c(19.8,20, 20, 20, 19.8), strain = c("874", "874", "874", "874", "874"))
+df17 <- data.frame(a = c(1,1,2,2), b = c(18.8, 19, 19, 18.8), strain = c("874", "874", "874","874"))
+df18 <- data.frame(a = c(2,2,3,3), b = c(12.8, 13, 13,12.8), strain = c("914", "914", "914","914"))
+df19 <- data.frame(a = c(1,1:3,3), b = c(13.8, 14, 14, 14,13.8), strain = c("914", "914", "914", "914", "914"))
+df20 <- data.frame(a = c(1.8,1.8,2,2.2,2.2), b = c(12.8, 13, 13, 13,12.8), strain = c("874", "874", "874","874","874"))
+df21 <- data.frame(a = c(2.8,2.8,3,3.2,3.2), b = c(11.8, 12, 12, 12,11.8), strain = c("914", "914", "914","914","914"))
+df22 <- data.frame(a = c(0.8,0.8,1,1.2,1.2), b = c(11.8, 12, 12, 12,11.8), strain = c("914", "914", "914","914","914"))
+
+# *** <0.001 ; ** 0.01-0.001; * 0.05-0.01
+pc <- pc + 
+  geom_line(data = df15, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 2.5, y = 14.1, strain = "874", label = "**"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+#p=0.0047
+  geom_line(data = df16, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 2, y = 20.1, strain = "874", label = "***"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+ #p<0.0001
+  geom_line(data = df17, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 1.5, y = 19.1, strain = "874", label = "***"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+#p<0.0001
+  geom_line(data = df18, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 2.5, y = 13.1, strain = "914", label = "*"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+ #p=0.0123
+  geom_line(data = df19, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 2, y = 14.1, strain = "914", label = "**"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+ #p=0.0086
+  geom_line(data = df20, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 2, y = 13.1, strain = "874", label = "***"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+ #p<0.0001
+  geom_line(data = df21, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 3, y = 12.1, strain = "914", label = "*"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+ #p = 0.0188
+  geom_line(data = df22, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 1, y = 12.1, strain = "914", label = "*"),aes(x = x, y = y, label = label), inherit.aes = FALSE) #p = 0.0113
+```
+## Particulate N
+```{R}
+pn <- plot_nutrients(nutrients_wide, PN, "PN (pg/cell)", FALSE, FALSE)
+
+#Adding significance lines
+df23 <- data.frame(a = c(2,2,3,3), b = c(1.28, 1.3, 1.3, 1.28), strain = c("874", "874", "874", "874"))
+df24 <- data.frame(a = c(1,1:3,3), b = c(2.18,2.2, 2.2, 2.2, 2.18), strain = c("874", "874", "874", "874", "874"))
+df25 <- data.frame(a = c(1,1,2,2), b = c(2.08,2.1, 2.1, 2.08), strain = c("874", "874", "874","874"))
+df26 <- data.frame(a = c(2,2,3,3), b = c(1.58, 1.6, 1.6,1.58), strain = c("914", "914", "914","914"))
+df27 <- data.frame(a = c(1,1:3,3), b = c(1.68, 1.7, 1.7, 1.7,1.68), strain = c("914", "914", "914", "914", "914"))
+df28 <- data.frame(a = c(1.8,1.8,2,2.2,2.2), b = c(1.18, 1.2, 1.2, 1.2,1.18), strain = c("874", "874", "874","874","874"))
+df29 <- data.frame(a = c(1.8,1.8,2,2.2,2.2), b = c(1.48, 1.5, 1.5, 1.5,1.48), strain = c("914", "914", "914","914","914"))
+df30 <- data.frame(a = c(0.8,0.8,1,1.2,1.2), b = c(1.48, 1.5, 1.5, 1.5,1.48), strain = c("914", "914", "914","914","914"))
+
+# *** <0.001 ; ** 0.01-0.001; * 0.05-0.01
+pn <- pn + 
+  geom_line(data = df23, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 2.5, y = 1.31, strain = "874", label = "*"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+#p=0.0126
+  geom_line(data = df24, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 2, y = 2.21, strain = "874", label = "***"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+ #p<0.0001
+  geom_line(data = df25, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 1.5, y = 2.11, strain = "874", label = "***"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+ #p<0.0001
+  geom_line(data = df26, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 2.5, y = 1.61, strain = "914", label = "*"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+ #p=0.0134
+  geom_line(data = df27, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 2, y = 1.71, strain = "914", label = "**"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+ #p=0.0054
+  geom_line(data = df28, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 2, y = 1.21, strain = "874", label = "*"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+ #p=0.0116
+  geom_line(data = df29, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 2, y = 1.51, strain = "914", label = "***"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+ #p = 0.0008
+  geom_line(data = df30, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 1, y = 1.51, strain = "914", label = "***"),aes(x = x, y = y, label = label), inherit.aes = FALSE) #p = 0.0008
+```
+## Particulate P
+```{R}
+pp <- plot_nutrients(nutrients_wide, PP, "PP (pg/cell)", FALSE, FALSE)
+
+#Adding significance lines
+df31 <- data.frame(a = c(1,1:3,3), b = c(0.595, 0.6, 0.6, 0.6, 0.595), strain = c("874", "874", "874", "874", "874"))
+df32 <- data.frame(a = c(1,1,2,2), b = c(0.565,0.57,0.57, 0.565), strain = c("874", "874", "874", "874"))
+df33 <- data.frame(a = c(1.8,1.8,2,2.2,2.2), b = c(0.365,0.37, 0.37, 0.37, 0.365), strain = c("874", "874", "874", "874","874"))
+df34 <- data.frame(a = c(2.8,2.8,3,3.2,3.2), b = c(0.395, 0.4, 0.4, 0.4,0.395), strain = c("914", "914", "914","914","914"))
+df35 <- data.frame(a = c(1.8,1.8,2,2.2,2.2), b = c(0.395, 0.4, 0.4, 0.4,0.395), strain = c("914", "914", "914","914","914"))
+df36 <- data.frame(a = c(0.8,0.8,1,1.2,1.2), b = c(0.425, 0.43, 0.43, 0.43,0.425), strain = c("914", "914", "914","914","914"))
+
+# *** <0.001 ; ** 0.01-0.001; * 0.05-0.01
+pp <- pp + 
+  geom_line(data = df31, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 2, y = 0.605, strain = "874", label = "***"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+#p<0.0001
+  geom_line(data = df32, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 1.5, y = 0.575, strain = "874", label = "***"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+ #p<0.0001
+  geom_line(data = df33, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 2, y = 0.375, strain = "874", label = "***"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+ #p=0.0002
+  geom_line(data = df34, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 3, y = 0.405, strain = "914", label = "*"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+ #p=0.0112
+  geom_line(data = df35, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 2, y = 0.405, strain = "914", label = "***"),aes(x = x, y = y, label = label), inherit.aes = FALSE)+ #p=0.0003
+  geom_line(data = df36, aes(x = a, y = b, group = strain), inherit.aes = FALSE) + geom_text(data = data.frame(x = 1, y = 0.435, strain = "914", label = "***"),aes(x = x, y = y, label = label), inherit.aes = FALSE) #p<0.0001
+```
+
+## Plotting everything together
+```{R}
+# Arrange the nutrient plots
+nutrients <- ggarrange(pc, pn,pp, common.legend = TRUE, legend = "bottom", ncol = 1)
+nutrients
+ggsave(filename = "nutrients.png", nutrients, width = 6, height = 6, dpi = 300)
+
+#Arrange ratio plots
+ratios <- ggarrange(sgr_plot, cn, np, common.legend = TRUE, legend = "bottom", ncol = 1)
+ratios
+ggsave(filename = "sgr_ratios.png", ratios, width = 6, height = 5.5, dpi = 300)
+```
+
+## Aligned Ranks Transformation (ART) ANOVA Nutrients
+
+### N:P Stats
+
+```{R}
+NP_ratio <- select(nutrients_wide,temp_cond,n_conc,strain,NP_ratio)
+NP_ratio$n_conc <- as.factor(NP_ratio$n_conc)
+NP_ratio$temp_cond <- as.factor(NP_ratio$temp_cond)
+NP_ratio$strain <- as.factor(NP_ratio$strain)
+model_NP = art(NP_ratio ~ strain * temp_cond * n_conc, data = NP_ratio)
+model_NP #warning for mean being not ~0...I will go with this for now.
+
+#Checking how normal it looks
+res.rnk = model_NP$residuals
+qqnorm(
+  res.rnk, pch = 20, main = "Rank-Transformed",
+  cex.lab = 1, cex.axis = 0.7, cex.main = 1
+)
+qqline(res.rnk)
+
+#Running the anova on the ranked growth rate
+anova(model_NP)
+
+#Pairwise comparisons on significant ANOVA contrasts
+art.con(model_NP, "strain", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_NP, "temp_cond", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_NP, "n_conc", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_NP, "strain:temp_cond", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_NP, "strain:n_conc", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_NP, "strain:temp_cond:n_conc", adjust="holm", interactions= TRUE) %>% 
+		  summary()
+```
+
+### C:N Stats
+
+```{R}
+CN_ratio <- select(nutrients_wide,temp_cond,n_conc,strain,CN_ratio)
+CN_ratio$n_conc <- as.factor(CN_ratio$n_conc)
+CN_ratio$temp_cond <- as.factor(CN_ratio$temp_cond)
+CN_ratio$strain <- as.factor(CN_ratio$strain)
+model_CN = art(CN_ratio ~ strain * temp_cond * n_conc, data = CN_ratio)
+model_CN #warning for mean being not ~0...I will go with this for now.
+
+#Checking how normal it looks...ehhhh
+res.rnk = model_CN$residuals
+qqnorm(
+  res.rnk, pch = 20, main = "Rank-Transformed",
+  cex.lab = 1, cex.axis = 0.7, cex.main = 1
+)
+qqline(res.rnk)
+
+#Running the anova on the ranked C:N
+anova(model_CN)
+
+#Pairwise comparisons on significant ANOVA contrasts
+art.con(model_CN, "strain", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_CN, "temp_cond", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_CN, "n_conc", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_CN, "strain:temp_cond", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_CN, "strain:n_conc", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_CN, "temp_cond:n_conc", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_CN, "strain:temp_cond:n_conc", adjust="holm", interactions= TRUE) %>% 
+		  summary()
+```
+
+### C:P Stats
+
+```{R}
+CP_ratio <- select(nutrients_wide,temp_cond,n_conc,strain,CP_ratio)
+CP_ratio$n_conc <- as.factor(CP_ratio$n_conc)
+CP_ratio$temp_cond <- as.factor(CP_ratio$temp_cond)
+CP_ratio$strain <- as.factor(CP_ratio$strain)
+model_CP = art(CP_ratio ~ strain * temp_cond * n_conc, data = CP_ratio)
+model_CP #warning for mean being not ~0...I will go with this for now.
+
+#Checking how normal it looks
+res.rnk = model_CP$residuals
+qqnorm(
+  res.rnk, pch = 20, main = "Rank-Transformed",
+  cex.lab = 1, cex.axis = 0.7, cex.main = 1
+)
+qqline(res.rnk)
+
+#Running the anova on the ranked growth rate
+anova(model_CP)
+```
+
+### PC Stats
+
+```{R}
+PC <- select(nutrients_wide,temp_cond,n_conc,strain,PC)
+PC$n_conc <- as.factor(PC$n_conc)
+PC$temp_cond <- as.factor(PC$temp_cond)
+PC$strain <- as.factor(PC$strain)
+model_PC = art(PC ~ strain * temp_cond * n_conc, data = PC)
+model_PC #warning for mean being not ~0...I will go with this for now.
+
+#Checking how normal it looks
+res.rnk = model_PC$residuals
+qqnorm(
+  res.rnk, pch = 20, main = "Rank-Transformed",
+  cex.lab = 1, cex.axis = 0.7, cex.main = 1
+)
+qqline(res.rnk)
+
+#Running the anova on the ranked growth rate
+anova(model_PC)
+
+#Pairwise comparisons on significant ANOVA contrasts
+art.con(model_PC, "temp_cond", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_PC, "n_conc", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_PC, "strain:temp_cond", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_PC, "strain:n_conc", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_PC, "temp_cond:n_conc", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_PC, "strain:temp_cond:n_conc", adjust="holm", interactions= TRUE) %>% 
+		  summary()
+```
+## PN Stats
+
+```{R}
+PN <- select(nutrients_wide,temp_cond,n_conc,strain,PN)
+PN$n_conc <- as.factor(PN$n_conc)
+PN$temp_cond <- as.factor(PN$temp_cond)
+PN$strain <- as.factor(PN$strain)
+model_PN = art(PN ~ strain * temp_cond * n_conc, data = PN)
+model_PN #warning for mean being not ~0...I will go with this for now.
+
+#Checking how normal it looks...ehhhh
+res.rnk = model_PN$residuals
+qqnorm(
+  res.rnk, pch = 20, main = "Rank-Transformed",
+  cex.lab = 1, cex.axis = 0.7, cex.main = 1
+)
+qqline(res.rnk)
+
+#Running the anova on the ranked growth rate
+anova(model_PN)
+
+#Pairwise comparisons of significant ANOVA contrasts
+art.con(model_PN, "temp_cond", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_PN, "n_conc", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_PN, "strain:temp_cond", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_PN, "strain:n_conc", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_PN, "temp_cond:n_conc", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_PN, "strain:temp_cond:n_conc", adjust="holm", interactions= TRUE) %>% 
+		  summary()
+```
+
+## PP Stats
+
+```{R}
+PP <- select(nutrients_wide,temp_cond,n_conc,strain,PP)
+PP$n_conc <- as.factor(PP$n_conc)
+PP$temp_cond <- as.factor(PP$temp_cond)
+PP$strain <- as.factor(PP$strain)
+model_PP = art(PP ~ strain * temp_cond * n_conc, data = PP)
+model_PP #warning for mean being not ~0...I will go with this for now.
+
+#Checking how normal it looks...ehhhh
+res.rnk = model_PP$residuals
+qqnorm(
+  res.rnk, pch = 20, main = "Rank-Transformed",
+  cex.lab = 1, cex.axis = 0.7, cex.main = 1
+)
+qqline(res.rnk)
+
+#Running the anova on the ranked growth rate
+anova(model_PP)
+
+art.con(model_PP, "strain", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_PP, "temp_cond", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_PP, "n_conc", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_PP, "strain:temp_cond", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_PP, "temp_cond:n_conc", adjust="holm", interactions= TRUE) %>%   
+		  summary()
+art.con(model_PP, "strain:temp_cond:n_conc", adjust="holm", interactions= TRUE) %>% 
+		  summary()
+```
